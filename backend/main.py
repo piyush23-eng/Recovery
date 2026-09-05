@@ -1,7 +1,7 @@
 import io
 import csv
-from typing import Optional, List
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
+from typing import Optional, List, Dict, Any
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -17,11 +17,18 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+IDEMPOTENCY_CACHE: Dict[str, Case] = {}
 
 
 class SpeedRequest(BaseModel):
@@ -141,10 +148,20 @@ async def get_audit_log(
     }
 
 
+@app.get("/api/audit-log/verify")
+async def verify_audit_log():
+    """
+    Cryptographically verifies that the append-only audit ledger has not been tampered with
+    by recomputing and validating the full SHA-256 hash chain from genesis to head.
+    """
+    return runner.verify_audit_log_chain()
+
+
 @app.get("/api/audit-log/export")
 async def export_audit_log():
     """
-    Exports the complete immutable audit trail as a downloadable CSV for compliance certification.
+    Exports the complete immutable audit trail as a downloadable CSV for compliance certification,
+    including cryptographic SHA-256 hash-chain signatures.
     """
     output = io.StringIO()
     writer = csv.writer(output)
@@ -158,6 +175,8 @@ async def export_audit_log():
         "Action",
         "Status",
         "Reason / Guardrail Rule",
+        "Previous Hash (SHA-256)",
+        "Entry Hash (SHA-256)",
         "Payload Summary"
     ])
 
@@ -170,6 +189,8 @@ async def export_audit_log():
             entry.action,
             entry.status,
             entry.reason,
+            entry.prev_hash or ("0" * 64),
+            entry.entry_hash or "",
             str(entry.payload)
         ])
 
@@ -241,6 +262,29 @@ async def run_instant():
     return {"message": "Instant execution started"}
 
 
+class CaseResponseWebhook(BaseModel):
+    outcome: str  # PAID, DISPUTE, RETRY, STOPPED
+    notes: Optional[str] = None
+    payment_reference: Optional[str] = None
+
+
+@app.post("/api/cases/{case_id}/respond")
+async def respond_to_case(case_id: str, req: CaseResponseWebhook):
+    """
+    Webhook endpoint to asynchronously resolve customer/gateway response for a case in AWAITING_RESPONSE.
+    """
+    resolved_case = await runner.resolve_case_response(case_id, req.outcome, req.notes or req.payment_reference)
+    if not resolved_case:
+        raise HTTPException(status_code=404, detail=f"Case '{case_id}' not found or unable to resolve")
+    return {
+        "message": f"Case {case_id} successfully reconciled with outcome: {req.outcome}",
+        "case_id": case_id,
+        "state": resolved_case.state.value,
+        "recovered_amount": resolved_case.recovered_amount,
+        "case": resolved_case
+    }
+
+
 class InjectCaseRequest(BaseModel):
     customer_name: Optional[str] = "Acme Retail Ltd"
     customer_id: Optional[str] = None
@@ -260,17 +304,36 @@ class InjectCaseRequest(BaseModel):
 
 
 @app.post("/api/cases/inject")
-async def inject_case(req: InjectCaseRequest):
+async def inject_case(
+    req: InjectCaseRequest,
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    api_key: Optional[str] = Header(None, alias="X-API-Key")
+):
     """
     Allows judges or operators to inject an ad-hoc custom risk event live into the running 6-agent system.
+    Supports Idempotency-Key header to prevent duplicate execution.
     """
+    if idempotency_key and idempotency_key in IDEMPOTENCY_CACHE:
+        cached_case = IDEMPOTENCY_CACHE[idempotency_key]
+        return {
+            "message": "Case retrieved from idempotency cache (already processed)",
+            "case_id": cached_case.case_id,
+            "case": cached_case,
+            "idempotent": True
+        }
+
     case = await runner.inject_custom_event(req.model_dump())
     if not case:
         raise HTTPException(status_code=500, detail="Failed to process injected case")
+
+    if idempotency_key:
+        IDEMPOTENCY_CACHE[idempotency_key] = case
+
     return {
         "message": "Case ingested and processed across all 6 agents",
         "case_id": case.case_id,
-        "case": case
+        "case": case,
+        "idempotent": False
     }
 
 
