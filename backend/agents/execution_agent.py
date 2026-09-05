@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 import random
 from datetime import datetime
@@ -70,6 +71,7 @@ def execute_intervention(case: Case) -> Tuple[Case, TraceEvent, AuditEntry]:
         return case, trace, audit
 
     # Allowed execution path
+    case_rng = random.Random(int(hashlib.md5(f"EXEC:{case.case_id}".encode()).hexdigest()[:8], 16))
     action_type = plan.intervention_type.value if plan else "unknown_action"
     cost = plan.estimated_cost if plan else 0.50
     case.cumulative_cost += cost
@@ -80,7 +82,7 @@ def execute_intervention(case: Case) -> Tuple[Case, TraceEvent, AuditEntry]:
         txn_id = f"txn_sim_{uuid.uuid4().hex[:12]}"
         # Gateway retry outcome simulation
         success_prob = 0.82 if plan.intervention_type == InterventionType.RETRY_NOW else 0.74
-        is_success = random.random() < success_prob
+        is_success = case_rng.random() < success_prob
         
         response_payload = {
             "gateway": "Razorpay / NPCI Direct Switch",
@@ -152,11 +154,12 @@ def execute_intervention(case: Case) -> Tuple[Case, TraceEvent, AuditEntry]:
         response_simulated=response_payload
     )
 
+    next_state = CaseStateEnum.AWAITING_RESPONSE if action_type != "GATEWAY_RETRY_EXECUTED" and execution_status == "SUCCESS" else CaseStateEnum.ACTION_EXECUTED
     case.action_result = action_result
-    case.state = CaseStateEnum.ACTION_EXECUTED
+    case.state = next_state
     case.updated_at = now_iso
     case.history.append({
-        "step": "ACTION_EXECUTED",
+        "step": next_state.value,
         "agent": "Execution Agent",
         "timestamp": now_iso,
         "description": f"Executed action: {action_type} (Status: {execution_status})"
@@ -180,7 +183,7 @@ def execute_intervention(case: Case) -> Tuple[Case, TraceEvent, AuditEntry]:
             "details": response_payload,
             "cost": cost
         },
-        state_after="ACTION_EXECUTED",
+        state_after=next_state.value,
         status_badge=execution_status
     )
 

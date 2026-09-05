@@ -18,9 +18,9 @@ def test_agent_pipeline():
 
     for i, event in enumerate(dataset):
         case, traces, audits = CaseRecoveryWorkflow.process_case_sync(event)
-        
-        assert len(traces) == 6, f"Expected 6 traces, got {len(traces)}"
-        assert len(audits) == 6, f"Expected 6 audits, got {len(audits)}"
+        expected_steps = 5 if (case.compliance and not case.compliance.allowed) else 6
+        assert len(traces) == expected_steps, f"Expected {expected_steps} traces, got {len(traces)}"
+        assert len(audits) == expected_steps, f"Expected {expected_steps} audits, got {len(audits)}"
         assert case.state in [CaseStateEnum.RECOVERED, CaseStateEnum.STOPPED, CaseStateEnum.ESCALATED, CaseStateEnum.RETRY]
         
         total_at_risk += case.event.amount

@@ -1,19 +1,24 @@
+import hashlib
 import uuid
 import random
 from datetime import datetime
-from typing import Tuple
+from typing import Tuple, Optional, Dict, Any
 from models import (
     Case, CaseStateEnum, AuditEntry, TraceEvent, InterventionType
 )
 
 
-def resolve_outcome_and_audit(case: Case) -> Tuple[Case, TraceEvent, AuditEntry]:
+def resolve_outcome_and_audit(
+    case: Case,
+    manual_outcome: Optional[str] = None,
+    manual_payload: Optional[Dict[str, Any]] = None
+) -> Tuple[Case, TraceEvent, AuditEntry]:
     """
     Agent 6: Outcome & Audit
-    - Logs final decision & results immutably
     - Evaluates customer response & resolves final state:
       {RECOVERED | RETRY | ESCALATED | STOPPED}
-    - Updates recovered-revenue ledger and final audit record
+    - Supports deterministic seeded simulation or live webhook callbacks.
+    - Updates recovered-revenue ledger and writes final audit entry.
     """
     now_iso = datetime.now().isoformat()
     compliance = case.compliance
@@ -26,8 +31,29 @@ def resolve_outcome_and_audit(case: Case) -> Tuple[Case, TraceEvent, AuditEntry]
     outcome_reason = ""
     audit_status = "INFO"
 
+    # Branch 0: Manual Webhook Resolution (Live API callback)
+    if manual_outcome:
+        norm_outcome = manual_outcome.upper()
+        if norm_outcome == "PAID":
+            final_state = CaseStateEnum.RECOVERED
+            recovered_amount = event.amount
+            outcome_reason = f"Customer completed payment of ₹{event.amount:,.2f} via live gateway webhook."
+            audit_status = "RECOVERED"
+        elif norm_outcome == "DISPUTE":
+            final_state = CaseStateEnum.ESCALATED
+            outcome_reason = "Customer raised a billing dispute via webhook; escalated to credit desk."
+            audit_status = "ESCALATED"
+        elif norm_outcome == "RETRY":
+            final_state = CaseStateEnum.RETRY
+            outcome_reason = "Customer requested payment retry callback."
+            audit_status = "INFO"
+        else:
+            final_state = CaseStateEnum.STOPPED
+            outcome_reason = f"Customer closed recovery workflow with status '{manual_outcome}'."
+            audit_status = "STOPPED"
+
     # Branch 1: Compliance Veto
-    if compliance and not compliance.allowed:
+    elif compliance and not compliance.allowed:
         if "B2B" in compliance.primary_reason or (plan and plan.intervention_type == InterventionType.HUMAN_ESCALATION):
             final_state = CaseStateEnum.ESCALATED
             outcome_reason = f"Compliance Escalation: {compliance.primary_reason}"
@@ -62,17 +88,19 @@ def resolve_outcome_and_audit(case: Case) -> Tuple[Case, TraceEvent, AuditEntry]
 
     # Branch 4: Customer Outreach Interventions (WhatsApp, Alt Payment, PTP)
     else:
-        # Realistic resolution simulation calibrated to ~70% recovery overall
-        # Weighted by customer segment and diagnosis
+        # Calibrated deterministic outcome generator per case
+        seed_int = int(hashlib.md5(f"{case.case_id}:{event.amount}:{event.customer_id}".encode()).hexdigest()[:8], 16)
+        case_rng = random.Random(seed_int)
+
         weight = 0.72
         if event.customer_segment == "ENTERPRISE":
             weight = 0.80
         elif event.customer_segment == "SMB":
             weight = 0.74
         elif event.dnd_flag:
-            weight = 0.0  # Already blocked by compliance anyway
+            weight = 0.0  # Blocked by compliance
         
-        outcome_rand = random.random()
+        outcome_rand = case_rng.random()
         if outcome_rand < weight:
             final_state = CaseStateEnum.RECOVERED
             recovered_amount = event.amount
@@ -116,7 +144,8 @@ def resolve_outcome_and_audit(case: Case) -> Tuple[Case, TraceEvent, AuditEntry]
             "recovered_amount": recovered_amount,
             "amount_at_risk": event.amount,
             "net_recovered": max(0.0, recovered_amount - case.cumulative_cost),
-            "reason": outcome_reason
+            "reason": outcome_reason,
+            "manual_payload": manual_payload
         },
         state_after=final_state.value,
         status_badge=final_state.value

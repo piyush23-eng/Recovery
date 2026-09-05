@@ -1,5 +1,6 @@
 import asyncio
-from typing import Dict, Any, List, Tuple, Callable, Optional
+from typing import Dict, Any, List, Tuple, Callable, Optional, TypedDict
+from langgraph.graph import StateGraph, END
 from models import Case, TraceEvent, AuditEntry
 from agents.signal_ingestion import ingest_signal
 from agents.root_cause_diagnosis import diagnose_root_cause
@@ -9,13 +10,143 @@ from agents.execution_agent import execute_intervention
 from agents.outcome_audit_agent import resolve_outcome_and_audit
 
 
+class AgentGraphState(TypedDict):
+    raw_event: Dict[str, Any]
+    case: Optional[Case]
+    traces: List[TraceEvent]
+    audits: List[AuditEntry]
+    latest_trace: Optional[TraceEvent]
+    latest_audit: Optional[AuditEntry]
+    current_node: str
+
+
+# --- LangGraph Agent Node Callbacks ---
+
+def node_signal_ingestion(state: AgentGraphState) -> AgentGraphState:
+    case, trace, audit = ingest_signal(state["raw_event"])
+    return {
+        "raw_event": state["raw_event"],
+        "case": case,
+        "traces": state["traces"] + [trace],
+        "audits": state["audits"] + [audit],
+        "latest_trace": trace,
+        "latest_audit": audit,
+        "current_node": "signal_ingestion"
+    }
+
+
+def node_root_cause_diagnosis(state: AgentGraphState) -> AgentGraphState:
+    case, trace, audit = diagnose_root_cause(state["case"])
+    return {
+        "raw_event": state["raw_event"],
+        "case": case,
+        "traces": state["traces"] + [trace],
+        "audits": state["audits"] + [audit],
+        "latest_trace": trace,
+        "latest_audit": audit,
+        "current_node": "root_cause_diagnosis"
+    }
+
+
+def node_strategy_selection(state: AgentGraphState) -> AgentGraphState:
+    case, trace, audit = select_strategy(state["case"])
+    return {
+        "raw_event": state["raw_event"],
+        "case": case,
+        "traces": state["traces"] + [trace],
+        "audits": state["audits"] + [audit],
+        "latest_trace": trace,
+        "latest_audit": audit,
+        "current_node": "strategy_selection"
+    }
+
+
+def node_compliance_guardrail(state: AgentGraphState) -> AgentGraphState:
+    case, trace, audit = evaluate_compliance_guardrails(state["case"])
+    return {
+        "raw_event": state["raw_event"],
+        "case": case,
+        "traces": state["traces"] + [trace],
+        "audits": state["audits"] + [audit],
+        "latest_trace": trace,
+        "latest_audit": audit,
+        "current_node": "compliance_guardrail"
+    }
+
+
+def node_execution(state: AgentGraphState) -> AgentGraphState:
+    case, trace, audit = execute_intervention(state["case"])
+    return {
+        "raw_event": state["raw_event"],
+        "case": case,
+        "traces": state["traces"] + [trace],
+        "audits": state["audits"] + [audit],
+        "latest_trace": trace,
+        "latest_audit": audit,
+        "current_node": "execution"
+    }
+
+
+def node_outcome_audit(state: AgentGraphState) -> AgentGraphState:
+    case, trace, audit = resolve_outcome_and_audit(state["case"])
+    return {
+        "raw_event": state["raw_event"],
+        "case": case,
+        "traces": state["traces"] + [trace],
+        "audits": state["audits"] + [audit],
+        "latest_trace": trace,
+        "latest_audit": audit,
+        "current_node": "outcome_audit"
+    }
+
+
+def compliance_routing_condition(state: AgentGraphState) -> str:
+    """
+    Conditional edge evaluator:
+    - If compliance allowed -> routes to 'execution'
+    - If compliance vetoed -> skips execution and routes directly to 'outcome_audit'
+    """
+    case = state["case"]
+    if case and case.compliance and not case.compliance.allowed:
+        return "outcome_audit"
+    return "execution"
+
+
+# --- Compile LangGraph StateGraph ---
+
+graph_builder = StateGraph(AgentGraphState)
+graph_builder.add_node("signal_ingestion", node_signal_ingestion)
+graph_builder.add_node("root_cause_diagnosis", node_root_cause_diagnosis)
+graph_builder.add_node("strategy_selection", node_strategy_selection)
+graph_builder.add_node("compliance_guardrail", node_compliance_guardrail)
+graph_builder.add_node("execution", node_execution)
+graph_builder.add_node("outcome_audit", node_outcome_audit)
+
+graph_builder.set_entry_point("signal_ingestion")
+graph_builder.add_edge("signal_ingestion", "root_cause_diagnosis")
+graph_builder.add_edge("root_cause_diagnosis", "strategy_selection")
+graph_builder.add_edge("strategy_selection", "compliance_guardrail")
+graph_builder.add_conditional_edges(
+    "compliance_guardrail",
+    compliance_routing_condition,
+    {
+        "execution": "execution",
+        "outcome_audit": "outcome_audit"
+    }
+)
+graph_builder.add_edge("execution", "outcome_audit")
+graph_builder.add_edge("outcome_audit", END)
+
+recovery_langgraph = graph_builder.compile()
+
+
 class CaseRecoveryWorkflow:
     """
-    State Machine & LangGraph Workflow orchestrating the 6 autonomous recovery agents:
+    LangGraph Workflow orchestrating the 6 autonomous recovery agents:
     1. Signal Ingestion
     2. Root Cause Diagnosis
     3. Strategy Selection
-    4. Compliance Guardrail
+    4. Compliance Guardrail (with conditional branching)
     5. Execution Agent
     6. Outcome & Audit
     """
@@ -26,54 +157,35 @@ class CaseRecoveryWorkflow:
         on_step_callback: Optional[Callable[[Case, TraceEvent, AuditEntry], None]] = None
     ) -> Tuple[Case, List[TraceEvent], List[AuditEntry]]:
         """
-        Synchronously runs a case through all 6 agent stages, invoking callback after each stage.
+        Synchronously runs a case through the compiled LangGraph StateGraph.
         """
-        traces: List[TraceEvent] = []
-        audits: List[AuditEntry] = []
+        initial_state: AgentGraphState = {
+            "raw_event": raw_event,
+            "case": None,
+            "traces": [],
+            "audits": [],
+            "latest_trace": None,
+            "latest_audit": None,
+            "current_node": "init"
+        }
 
-        # Step 1: Signal Ingestion
-        case, trace_1, audit_1 = ingest_signal(raw_event)
-        traces.append(trace_1)
-        audits.append(audit_1)
-        if on_step_callback:
-            on_step_callback(case, trace_1, audit_1)
+        final_case: Optional[Case] = None
+        all_traces: List[TraceEvent] = []
+        all_audits: List[AuditEntry] = []
 
-        # Step 2: Root Cause Diagnosis
-        case, trace_2, audit_2 = diagnose_root_cause(case)
-        traces.append(trace_2)
-        audits.append(audit_2)
-        if on_step_callback:
-            on_step_callback(case, trace_2, audit_2)
+        for output in recovery_langgraph.stream(initial_state):
+            for node_name, state in output.items():
+                final_case = state["case"]
+                trace = state["latest_trace"]
+                audit = state["latest_audit"]
+                if trace:
+                    all_traces.append(trace)
+                if audit:
+                    all_audits.append(audit)
+                if on_step_callback and final_case and trace and audit:
+                    on_step_callback(final_case, trace, audit)
 
-        # Step 3: Strategy Selection
-        case, trace_3, audit_3 = select_strategy(case)
-        traces.append(trace_3)
-        audits.append(audit_3)
-        if on_step_callback:
-            on_step_callback(case, trace_3, audit_3)
-
-        # Step 4: Compliance Guardrail (Hard Gate)
-        case, trace_4, audit_4 = evaluate_compliance_guardrails(case)
-        traces.append(trace_4)
-        audits.append(audit_4)
-        if on_step_callback:
-            on_step_callback(case, trace_4, audit_4)
-
-        # Step 5: Execution Agent
-        case, trace_5, audit_5 = execute_intervention(case)
-        traces.append(trace_5)
-        audits.append(audit_5)
-        if on_step_callback:
-            on_step_callback(case, trace_5, audit_5)
-
-        # Step 6: Outcome & Audit
-        case, trace_6, audit_6 = resolve_outcome_and_audit(case)
-        traces.append(trace_6)
-        audits.append(audit_6)
-        if on_step_callback:
-            on_step_callback(case, trace_6, audit_6)
-
-        return case, traces, audits
+        return final_case, all_traces, all_audits
 
     @staticmethod
     async def process_case_async(
@@ -82,61 +194,35 @@ class CaseRecoveryWorkflow:
         on_step_callback: Optional[Callable[[Case, TraceEvent, AuditEntry], Any]] = None
     ) -> Tuple[Case, List[TraceEvent], List[AuditEntry]]:
         """
-        Asynchronously runs a case with realistic micro-delays between agent nodes for real-time visualization.
+        Asynchronously streams a case through the compiled LangGraph StateGraph
+        with async callback dispatch and real-time visualization delays.
         """
-        traces: List[TraceEvent] = []
-        audits: List[AuditEntry] = []
+        initial_state: AgentGraphState = {
+            "raw_event": raw_event,
+            "case": None,
+            "traces": [],
+            "audits": [],
+            "latest_trace": None,
+            "latest_audit": None,
+            "current_node": "init"
+        }
 
-        # Step 1: Signal Ingestion
-        case, trace_1, audit_1 = ingest_signal(raw_event)
-        traces.append(trace_1)
-        audits.append(audit_1)
-        if on_step_callback:
-            await on_step_callback(case, trace_1, audit_1)
-        if step_delay > 0:
-            await asyncio.sleep(step_delay)
+        final_case: Optional[Case] = None
+        all_traces: List[TraceEvent] = []
+        all_audits: List[AuditEntry] = []
 
-        # Step 2: Root Cause Diagnosis
-        case, trace_2, audit_2 = diagnose_root_cause(case)
-        traces.append(trace_2)
-        audits.append(audit_2)
-        if on_step_callback:
-            await on_step_callback(case, trace_2, audit_2)
-        if step_delay > 0:
-            await asyncio.sleep(step_delay)
+        for output in recovery_langgraph.stream(initial_state):
+            for node_name, state in output.items():
+                final_case = state["case"]
+                trace = state["latest_trace"]
+                audit = state["latest_audit"]
+                if trace:
+                    all_traces.append(trace)
+                if audit:
+                    all_audits.append(audit)
+                if on_step_callback and final_case and trace and audit:
+                    await on_step_callback(final_case, trace, audit)
+                if step_delay > 0:
+                    await asyncio.sleep(step_delay)
 
-        # Step 3: Strategy Selection
-        case, trace_3, audit_3 = select_strategy(case)
-        traces.append(trace_3)
-        audits.append(audit_3)
-        if on_step_callback:
-            await on_step_callback(case, trace_3, audit_3)
-        if step_delay > 0:
-            await asyncio.sleep(step_delay)
-
-        # Step 4: Compliance Guardrail
-        case, trace_4, audit_4 = evaluate_compliance_guardrails(case)
-        traces.append(trace_4)
-        audits.append(audit_4)
-        if on_step_callback:
-            await on_step_callback(case, trace_4, audit_4)
-        if step_delay > 0:
-            await asyncio.sleep(step_delay)
-
-        # Step 5: Execution Agent
-        case, trace_5, audit_5 = execute_intervention(case)
-        traces.append(trace_5)
-        audits.append(audit_5)
-        if on_step_callback:
-            await on_step_callback(case, trace_5, audit_5)
-        if step_delay > 0:
-            await asyncio.sleep(step_delay)
-
-        # Step 6: Outcome & Audit
-        case, trace_6, audit_6 = resolve_outcome_and_audit(case)
-        traces.append(trace_6)
-        audits.append(audit_6)
-        if on_step_callback:
-            await on_step_callback(case, trace_6, audit_6)
-
-        return case, traces, audits
+        return final_case, all_traces, all_audits

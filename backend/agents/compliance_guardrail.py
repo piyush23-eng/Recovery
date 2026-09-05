@@ -182,6 +182,16 @@ def evaluate_compliance_guardrails(case: Case) -> Tuple[Case, TraceEvent, AuditE
     case.compliance = compliance_result
     case.state = CaseStateEnum.COMPLIANCE_CHECK
     case.updated_at = now_iso
+
+    if not allowed:
+        from models import ActionResult
+        case.action_result = ActionResult(
+            action_type="EXECUTION_BYPASS",
+            status="VETOED_BY_COMPLIANCE",
+            payload={"reason": primary_reason, "bypassed_by": "ComplianceGuardrailAgent"},
+            cost_incurred=0.0
+        )
+
     case.history.append({
         "step": "COMPLIANCE_CHECK",
         "agent": "Compliance Guardrail",
