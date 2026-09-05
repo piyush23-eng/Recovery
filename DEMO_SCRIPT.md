@@ -10,7 +10,7 @@
 > *"Here is what makes this production-grade for regulated fintechs: **The Compliance Guardrail Agent**. Look at these red badges — when a customer is flagged on the simulated National DND registry, or when local time hits 10:00 PM quiet hours, the guardrail visibly **vetoes** the action before any message can be sent. We also enforce a 3-retry cap and auto-escalate B2B invoices over ₹50,000 to human desks."*
 
 ### 4. Overview Funnel & Reconciled Numbers (1:20 - 1:45)
-> *"On the **Overview** dashboard, our 5-step recovery funnel shows live conversion from Detected to Recovered with diagonal-hatched sparklines. Across this 300-event batch, we recovered **₹17.8 Lakhs** of **₹30.8 Lakhs** at risk — a defensible 58% recovery rate, with 44 compliance stops enforced."*
+> *"On the **Overview** dashboard, our 5-step recovery funnel shows live conversion from Detected to Recovered with diagonal-hatched sparklines. Across this 300-event batch, we recovered **₹17.3 Lakhs** of **₹33.4 Lakhs** at risk — a defensible 51.6% deterministic recovery rate, with 45 compliance stops enforced."*
 
 ### 5. Proof & Closing (1:45 - 2:00)
 > *"On the **Audit Log** tab, every single decision — including why an action was blocked — is immutably logged and exportable via a single click to CSV. This is bounded, autonomous, compliant revenue recovery."*

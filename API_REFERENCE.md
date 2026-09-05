@@ -98,6 +98,27 @@ Allows external systems or judges to inject an ad-hoc custom failure event live.
 }
 ```
 
+#### `POST /api/cases/{case_id}/respond`
+Asynchronously reconciles a customer payment callback or webhook response for a case in `AWAITING_RESPONSE`.
+**Request Body**:
+```json
+{
+  "outcome": "PAID",
+  "notes": "Razorpay webhook callback: captured",
+  "payment_reference": "pay_98a7sd89f7"
+}
+```
+**Response**:
+```json
+{
+  "message": "Case CASE-1042 successfully reconciled with outcome: PAID",
+  "case_id": "CASE-1042",
+  "state": "RECOVERED",
+  "recovered_amount": 1499.00,
+  "case": { ... }
+}
+```
+
 ---
 
 ### Audit & Compliance
@@ -110,8 +131,22 @@ Returns paginated append-only immutable audit ledger entries.
 - `status` (string, optional): `PASSED`, `BLOCKED`, `EXECUTED`, `RECOVERED`
 - `agent` (string, optional): Filter by agent name
 
+#### `GET /api/audit-log/verify`
+Cryptographically verifies the append-only SHA-256 hash chain from the genesis block (`0000...0000`) to the latest head entry.
+**Response**:
+```json
+{
+  "verified": true,
+  "total_entries": 1755,
+  "genesis_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "chain_head": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "tampered": false,
+  "message": "Cryptographic verification passed: All 1755 audit entries form an unbroken, tamper-evident SHA-256 chain."
+}
+```
+
 #### `GET /api/audit-log/export`
-Streams the complete audit trail as a downloadable `compliance_audit_ledger.csv` file.
+Streams the complete audit trail as a downloadable `compliance_audit_ledger.csv` file with cryptographic SHA-256 signatures.
 
 ---
 

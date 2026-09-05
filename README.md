@@ -37,7 +37,23 @@ Rather than relying on unguided chatbots or dumb notification blasts that spam c
 - Formulates localized, bounded interventions (Hinglish voice scripts, WhatsApp 1-tap UPI deep links, mandate updates).
 - **Evaluates 7 deterministic statutory stopping rules BEFORE executing any action**.
 - Simulates bounded action execution with per-message unit-economics tracking.
-- Appends every decision to a tamper-evident, cryptographic audit ledger exportable to CSV.
+- Appends every decision to a tamper-evident, cryptographic SHA-256 audit ledger verifiable via REST API and exportable to CSV.
+
+---
+
+## 🔍 What's Real vs Simulated in This Build
+
+To ensure complete engineering transparency and rigorous technical integrity, here is a precise breakdown of what is fully implemented in code versus what is modeled in simulation:
+
+| Component / Layer | Status | Implementation Details |
+| :--- | :--- | :--- |
+| **Agent Pipeline & State Machine** | **REAL** | Compiled LangGraph `StateGraph` with explicit nodes and conditional edge routing (`add_conditional_edges`) around compliance vetoes. |
+| **Compliance Hard Gates** | **REAL** | 7 deterministic Python evaluation rules executed *before* any action dispatch; vetoes strictly halt execution with zero bypasses. |
+| **Tamper-Evident Audit Ledger** | **REAL** | Append-only cryptographic SHA-256 hash-chaining across all audit entries from genesis (`0`*64) to head; verifiable via `GET /api/audit-log/verify`. |
+| **WebSocket Synchronization Hub** | **REAL** | Full bidirectional asynchronous broadcast engine emitting sub-millisecond trace payloads to React UI. |
+| **Recovery Outcomes** | **SIMULATED** | Calibrated probability distribution evaluated deterministically with `seed=42` (not live bank gateway settlements). |
+| **Channel Dispatch (WhatsApp/Voice/API)** | **SIMULATED** | Structured payload synthesis, localized Hinglish copy, and per-message unit-economics tracking (no live third-party API keys required). |
+| **Authentication & Authorization** | **DEMO ONLY** | Lightweight `X-API-Key` and `Idempotency-Key` headers for sandbox exploration (no production OAuth/IAM layer). |
 
 ---
 
@@ -205,25 +221,28 @@ The user interface follows a light, glassmorphic fintech SaaS design language (M
 
 ## 📊 Financial Reconciliation & Benchmark Metrics
 
+> **Reproducibility Guarantee**: Results are deterministic given `seed=42`; unseeded runs will vary by simulation design.
+
 ### Baseline Results across 300-Case Calibrated Batch:
 
-$$\text{Recovery Rate} = \frac{\text{₹}17,84,665.56}{\text{₹}30,84,767.22} \times 100 = 57.9\%$$
+$$\text{Recovery Rate} = \frac{\text{₹}17,25,547.85}{\text{₹}33,41,754.18} \times 100 = 51.6\%$$
 
-$$\text{Net Profit Recovered} = \text{₹}17,84,665.56 - \text{₹}171.40 = \text{₹}17,84,494.16$$
+$$\text{Net Profit Recovered} = \text{₹}17,25,547.85 - \text{₹}196.10 = \text{₹}17,25,351.75$$
 
-$$\text{Net Recovery ROI Multiplier} = \frac{\text{₹}17,84,665.56}{\text{₹}171.40} = 104.1\times$$
+$$\text{Net Recovery ROI Multiplier} = \frac{\text{₹}17,25,547.85}{\text{₹}196.10} = 8,799.3\times$$
 
 ```
 ┌──────────────────────────────────────┬────────────────────────────────┐
 │ Metric Dimension                     │ Audited Value                  │
 ├──────────────────────────────────────┼────────────────────────────────┤
-│ Total Revenue at Risk                │ ₹30,84,767.22 (300 cases)      │
-│ Total Gross Revenue Recovered        │ ₹17,84,665.56 (57.9% rate)     │
-│ Total Channel Operational Cost       │ ₹171.40 (WhatsApp + Voice + SMS)│
-│ Net Revenue Recovered                │ ₹17,84,494.16                  │
-│ Net ROI Multiplier                   │ 104.1x per ₹1 spend            │
-│ Compliance Hard Stops Enforced       │ 44 Vetoes (Zero infractions)   │
-│ Immutable Audit Ledger Entries       │ 1,800 records (CSV exportable) │
+│ Total Revenue at Risk                │ ₹33,41,754.18 (300 cases)      │
+│ Total Gross Revenue Recovered        │ ₹17,25,547.85 (51.6% rate)     │
+│ Total Channel Operational Cost       │ ₹196.10 (WhatsApp + Voice + SMS)│
+│ Net Revenue Recovered                │ ₹17,25,351.75                  │
+│ Net ROI Multiplier                   │ 8,799.3x per ₹1 spend          │
+│ Compliance Hard Stops Enforced       │ 45 Vetoes (Zero infractions)   │
+│ Cryptographic Audit Entries          │ 1,755 SHA-256 chained records  │
+│ Audit Chain Verification             │ PASSED (Unbroken from genesis) │
 └──────────────────────────────────────┴────────────────────────────────┘
 ```
 
@@ -246,14 +265,16 @@ ai-revenue-recovery/
 │   │   ├── dataset_generator.py       # 300-case calibrated dataset generator
 │   │   └── state_graph.py             # LangGraph state machine workflow
 │   ├── main.py                        # FastAPI endpoints, WebSockets, CSV export
-│   ├── models.py                      # Pydantic schemas (RiskEvent, Case, AuditEntry)
+│   ├── models.py                      # Pydantic schemas (RiskEvent, Case, AuditEntry, hash chain)
 │   ├── test_compliance_hard_gates.py  # Strict 7-gate compliance test suite
-│   ├── test_pipeline.py               # End-to-end state machine pipeline test
-│   └── requirements.txt               # Backend dependencies
+│   ├── test_pipeline.py               # End-to-end LangGraph StateGraph pipeline test
+│   ├── test_audit_hash_chain.py       # Cryptographic SHA-256 hash-chain verification test
+│   ├── test_reproducibility.py        # 100% deterministic reproducibility test suite
+│   └── requirements.txt               # Backend dependencies (fastapi, langgraph, pytest, etc.)
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── AttestationModal.tsx   # Formal compliance certification certificate
+│   │   │   ├── AttestationModal.tsx   # Compliance policy simulation report
 │   │   │   ├── CaseDrawer.tsx         # Slide-over drawer with WhatsApp & Voice Player
 │   │   │   ├── DateRangePicker.tsx    # Popover date range picker with 7 presets
 │   │   │   ├── HatchPattern.tsx       # Scalable SVG diagonal hatch pattern defs
@@ -276,6 +297,9 @@ ai-revenue-recovery/
 │   ├── package.json
 │   ├── tailwind.config.js
 │   └── vite.config.ts
+├── .github/
+│   └── workflows/
+│       └── ci.yml                     # Automated GitHub Actions CI test & build pipeline
 ├── DEMO_SCRIPT.md                     # 2-minute judge demo & pitch script
 ├── ARCHITECTURE.md                    # Deep-dive architectural specification
 ├── API_REFERENCE.md                   # REST and WebSocket API documentation
@@ -335,16 +359,25 @@ npm run dev -- --host 0.0.0.0 --port 3000
 
 ## 🧪 Test Suite & Formal Verification
 
-Run the automated Python test suite to verify pipeline integrity and hard gate enforcement:
+Run the automated Python test suite to verify pipeline integrity, compliance rules, and cryptographic audit hash-chaining:
 
 ```bash
-# 1. Run compliance hard gate verification (tests all 7 stopping rules)
+# 1. Run all tests with pytest
+pytest backend/
+
+# 2. Run compliance hard gate verification (tests all 7 stopping rules)
 python backend/test_compliance_hard_gates.py
 
-# 2. Run end-to-end pipeline assertion test (50-case batch)
+# 3. Run end-to-end LangGraph pipeline test (50-case batch)
 python backend/test_pipeline.py
 
-# 3. Verify frontend production build
+# 4. Run cryptographic SHA-256 hash-chain verification & tamper detection
+python backend/test_audit_hash_chain.py
+
+# 5. Run 300-case batch reproducibility test (guarantees identical deterministic metrics)
+python backend/test_reproducibility.py
+
+# 6. Verify frontend production build
 cd frontend && npm run build
 ```
 
@@ -357,14 +390,16 @@ cd frontend && npm run build
 - `GET /api/stats` — Real-time ledger statistics & financial totals
 - `GET /api/cases` — Paginated, filtered case records (`status`, `event_type`, `search`)
 - `GET /api/cases/{case_id}` — Detailed state machine history & audit trail for a case
+- `POST /api/cases/{case_id}/respond` — Asynchronous webhook endpoint to resolve case response live
 - `GET /api/audit-log` — Immutable append-only audit trail
-- `GET /api/audit-log/export` — Download complete audit ledger as `.csv`
-- `POST /api/cases/inject` — Ingest & execute an ad-hoc custom failure scenario live
+- `GET /api/audit-log/verify` — Cryptographic SHA-256 tamper-evidence verification of full audit chain
+- `GET /api/audit-log/export` — Download complete audit ledger as `.csv` (with SHA-256 signatures)
+- `POST /api/cases/inject` — Ingest & execute an ad-hoc custom failure scenario live (supports `Idempotency-Key`)
 - `POST /api/simulation/start` — Start / resume batch processing
 - `POST /api/simulation/pause` — Pause batch processing
 - `POST /api/simulation/step` — Process exactly 1 case step-by-step
 - `POST /api/simulation/run-instant` — Execute remaining cases instantly (100x speed)
-- `POST /api/simulation/reset` — Reset dataset to 300 calibrated cases
+- `POST /api/simulation/reset` — Reset dataset to 300 calibrated cases (`seed=42`)
 
 ### Live WebSocket Stream (`ws://localhost:8000/ws`)
 - `INITIAL_SYNC` — Full snapshot of ledger stats, recent cases, and traces upon connection
