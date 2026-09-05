@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
@@ -122,6 +124,28 @@ class AuditEntry(BaseModel):
     status: Literal["INFO", "PASSED", "BLOCKED", "EXECUTED", "RECOVERED", "ESCALATED", "STOPPED"]
     reason: str
     payload: Dict[str, Any] = Field(default_factory=dict)
+    prev_hash: Optional[str] = None
+    entry_hash: Optional[str] = None
+
+
+def compute_audit_entry_hash(prev_hash: str, entry: Dict[str, Any]) -> str:
+    """
+    Computes a cryptographic SHA-256 hash over the canonical JSON serialization
+    of the AuditEntry combined with the previous entry's hash.
+    """
+    canonical_payload = {
+        "audit_id": entry.get("audit_id"),
+        "case_id": entry.get("case_id"),
+        "timestamp": entry.get("timestamp"),
+        "agent": entry.get("agent"),
+        "action": entry.get("action"),
+        "status": entry.get("status"),
+        "reason": entry.get("reason"),
+        "payload": entry.get("payload", {}),
+        "prev_hash": prev_hash
+    }
+    canonical_json = json.dumps(canonical_payload, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256((prev_hash + canonical_json).encode("utf-8")).hexdigest()
 
 
 class Case(BaseModel):

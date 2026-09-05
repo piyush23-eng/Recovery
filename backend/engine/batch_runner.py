@@ -1,16 +1,17 @@
 import asyncio
 from typing import Dict, List, Any, Optional, Set
 from fastapi import WebSocket
-from models import Case, TraceEvent, AuditEntry, LedgerStats, CaseStateEnum
+from models import Case, TraceEvent, AuditEntry, LedgerStats, CaseStateEnum, compute_audit_entry_hash
 from engine.dataset_generator import generate_synthetic_dataset
 from engine.state_graph import CaseRecoveryWorkflow
 
 
 class BatchSimulationRunner:
     def __init__(self):
-        self.raw_dataset: List[Dict[str, Any]] = generate_synthetic_dataset(300)
+        self.raw_dataset: List[Dict[str, Any]] = generate_synthetic_dataset(300, seed=42)
         self.cases: Dict[str, Case] = {}
         self.audit_log: List[AuditEntry] = []
+        self.latest_audit_hash: str = "0" * 64
         self.traces: List[TraceEvent] = []
         self.stats = LedgerStats(total_cases=len(self.raw_dataset))
         
@@ -143,6 +144,13 @@ class BatchSimulationRunner:
 
     async def _handle_step(self, case: Case, trace: TraceEvent, audit: AuditEntry):
         self.cases[case.case_id] = case
+        
+        # Cryptographic Hash-Chain Integrity Linking
+        audit.prev_hash = self.latest_audit_hash
+        entry_hash = compute_audit_entry_hash(self.latest_audit_hash, audit.model_dump())
+        audit.entry_hash = entry_hash
+        self.latest_audit_hash = entry_hash
+
         self.audit_log.append(audit)
         self.traces.append(trace)
         if len(self.traces) > 300:
@@ -153,6 +161,66 @@ class BatchSimulationRunner:
         await self.broadcast("TRACE_EMITTED", trace.model_dump())
         await self.broadcast("CASE_UPDATED", case.model_dump())
         await self.broadcast("STATS_UPDATED", self.stats.model_dump())
+
+    def verify_audit_log_chain(self) -> Dict[str, Any]:
+        """
+        Walks the entire audit trail and re-computes every SHA-256 hash to prove tamper-evidence.
+        """
+        if not self.audit_log:
+            return {
+                "verified": True,
+                "total_entries": 0,
+                "genesis_hash": "0" * 64,
+                "chain_head": self.latest_audit_hash,
+                "tampered": False,
+                "message": "Audit ledger is currently empty."
+            }
+
+        expected_prev = "0" * 64
+        for i, entry in enumerate(self.audit_log):
+            if entry.prev_hash != expected_prev:
+                return {
+                    "verified": False,
+                    "total_entries": len(self.audit_log),
+                    "tampered_index": i,
+                    "audit_id": entry.audit_id,
+                    "expected_prev_hash": expected_prev,
+                    "actual_prev_hash": entry.prev_hash,
+                    "error": f"Broken chain link at index {i} (Audit ID: {entry.audit_id})"
+                }
+            recomputed = compute_audit_entry_hash(expected_prev, entry.model_dump())
+            if entry.entry_hash != recomputed:
+                return {
+                    "verified": False,
+                    "total_entries": len(self.audit_log),
+                    "tampered_index": i,
+                    "audit_id": entry.audit_id,
+                    "expected_entry_hash": recomputed,
+                    "actual_entry_hash": entry.entry_hash,
+                    "error": f"Cryptographic signature mismatch at index {i} (Audit ID: {entry.audit_id})"
+                }
+            expected_prev = entry.entry_hash
+
+        return {
+            "verified": True,
+            "total_entries": len(self.audit_log),
+            "genesis_hash": "0" * 64,
+            "chain_head": self.latest_audit_hash,
+            "tampered": False,
+            "message": f"Cryptographic verification passed: All {len(self.audit_log)} audit entries form an unbroken, tamper-evident SHA-256 chain."
+        }
+
+    async def resolve_case_response(self, case_id: str, outcome: str, notes: Optional[str] = None) -> Optional[Case]:
+        """
+        Reconciles a customer response received asynchronously via webhook for a case in AWAITING_RESPONSE.
+        """
+        case = self.cases.get(case_id)
+        if not case:
+            return None
+        from agents.outcome_audit_agent import resolve_outcome_and_audit
+        case, trace, audit = resolve_outcome_and_audit(case, manual_outcome=outcome, manual_payload={"notes": notes})
+        await self._handle_step(case, trace, audit)
+        return case
 
     async def process_one_case(self, raw_event: Dict[str, Any]):
         base_step_delay = 0.08 / max(0.2, self.speed_multiplier) if self.speed_multiplier > 0 else 0.0
@@ -194,15 +262,16 @@ class BatchSimulationRunner:
     def pause(self):
         self.is_paused = True
 
-    def reset(self, count: int = 300):
+    def reset(self, count: int = 300, seed: int = 42):
         if self._task and not self._task.done():
             self._task.cancel()
         self.is_running = False
         self.is_paused = False
         self.current_index = 0
-        self.raw_dataset = generate_synthetic_dataset(count)
+        self.raw_dataset = generate_synthetic_dataset(count, seed=seed)
         self.cases.clear()
         self.audit_log.clear()
+        self.latest_audit_hash = "0" * 64
         self.traces.clear()
         self.stats = LedgerStats(total_cases=len(self.raw_dataset))
 
