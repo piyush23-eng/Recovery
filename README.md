@@ -14,19 +14,16 @@
 ## 📑 Table of Contents
 
 1. [Executive Summary](#-executive-summary)
-2. [What's Real vs Simulated in This Build](#-whats-real-vs-simulated-in-this-build)
-3. [Production Roadmap](#-production-roadmap)
-4. [The Core Problem & Why Now](#-the-core-problem--why-now)
-5. [System Architecture & Finite State Machine](#-system-architecture--finite-state-machine)
-6. [The 6 Autonomous Recovery Agents](#-the-6-autonomous-recovery-agents)
-7. [The 7 Deterministic Compliance Hard Gates](#-the-7-deterministic-compliance-hard-gates)
-8. [Interactive Live Ops & Sandbox Features](#-interactive-live-ops--sandbox-features)
-9. [Financial Reconciliation & Benchmark Metrics](#-financial-reconciliation--benchmark-metrics)
-10. [5-Minute Automated Video Demo & Script Guide](#-5-minute-automated-video-demo--script-guide)
-11. [Project Structure](#-project-structure)
-12. [Installation & Quickstart Guide](#-installation--quickstart-guide)
-13. [Test Suite & Formal Verification](#-test-suite--formal-verification)
-14. [API & WebSocket Reference](#-api--websocket-reference)
+2. [The Core Problem & Why Now](#-the-core-problem--why-now)
+3. [System Architecture & Finite State Machine](#-system-architecture--finite-state-machine)
+4. [The 6 Autonomous Recovery Agents](#-the-6-autonomous-recovery-agents)
+5. [The 7 Deterministic Compliance Hard Gates](#-the-7-deterministic-compliance-hard-gates)
+6. [Interactive Live Ops & Sandbox Features](#-interactive-live-ops--sandbox-features)
+7. [Financial Reconciliation & Benchmark Metrics](#-financial-reconciliation--benchmark-metrics)
+8. [Project Structure](#-project-structure)
+9. [Installation & Quickstart Guide](#-installation--quickstart-guide)
+10. [Test Suite & Formal Verification](#-test-suite--formal-verification)
+11. [API & WebSocket Reference](#-api--websocket-reference)
 
 ---
 
@@ -229,7 +226,7 @@ The user interface follows a light, glassmorphic fintech SaaS design language (M
 3. **Natural Language AI Exploration Bar (`Overview.tsx`)**:
    - Interactive prompt bar allowing users to ask questions like *"Why did carts drop?"* or *"Show B2B disputes"*, delivering dynamic diagnosis cards.
 4. **Slide-Over Case Drawer (`CaseDrawer.tsx`)**:
-   - Solid, non-transparent 4-tab slide-over (`isolation: isolate`, `#FFFFFF` backdrop) with state progression timeline, compliance check details, simulated WhatsApp thread with dynamic 1-tap UPI deep links (Razorpay mock) and customer payment receipts, and **Hinglish AI Voice Player powered by Neural Voice Engine with interactive audio waveforms and native browser speech synthesis**.
+   - 4-tab slide-over with state progression timeline, compliance check details, simulated WhatsApp thread with UPI intent CTAs, and **Hinglish AI Voice Player with native browser speech synthesis**.
 5. **Interactive Compliance Sandbox (`Compliance.tsx`)**:
    - Configurable sliders for local time, 24h contacts, DND flag, and B2B disputes with instant deterministic gate verdicts.
 6. **Channel Unit Economics & Annual ROI Simulator (`Analytics.tsx`)**:
@@ -266,28 +263,6 @@ $$\text{Net Recovery ROI Multiplier} = \frac{\text{₹}17,25,547.85}{\text{₹}1
 │ Cryptographic Audit Entries          │ 1,755 SHA-256 chained records  │
 │ Audit Chain Verification             │ PASSED (Unbroken from genesis) │
 └──────────────────────────────────────┴────────────────────────────────┘
-```
-
----
-
-## 🎥 5-Minute Automated Video Demo & Script Guide
-
-For rapid evaluation, judge scoring, and asynchronous technical review, this repository provides both a pre-rendered high-definition demo video and an automated Playwright screen recording script:
-
-- **Pre-Rendered Video**: [`recovery_5min_pitch_demo.mp4`](./recovery_5min_pitch_demo.mp4) (34 MB, 1080p HD, 60fps, exactly 300.0s / 5:00 minutes).
-- **Automated Recording Script**: [`record_5min_demo.py`](./record_5min_demo.py) — launches headless Chromium via Playwright, injects smooth visual cursor overlays, and navigates through all 6 core workflows:
-  1. *Executive Dashboard & Conversion Funnel* (0:00 – 0:40)
-  2. *Live Ops & 6-Agent LangGraph State Machine* (0:40 – 1:40)
-  3. *Pre-Execution Compliance Hard Gates & Event Ingestion* (1:40 – 2:40)
-  4. *Cryptographic SHA-256 Audit Chain Verification & CSV Export* (2:40 – 3:40)
-  5. *Channel Unit Economics & Annual ROI Simulator* (3:40 – 4:40)
-  6. *Closing Summary & 100% Deterministic Reproducibility* (4:40 – 5:00)
-- **Word-for-Word Pitch & Voiceover Guide**: [`DEMO_SCRIPT.md`](./DEMO_SCRIPT.md) — complete with both a 2-minute elevator pitch and a second-by-second voiceover script matching the recorded video.
-
-### Re-Running the Automated Screen Recorder:
-```bash
-# Ensure both backend (:8000) and frontend (:3000) are running
-python record_5min_demo.py
 ```
 
 ---
@@ -346,9 +321,7 @@ ai-revenue-recovery/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                     # Automated GitHub Actions CI test & build pipeline
-├── DEMO_SCRIPT.md                     # 2-minute pitch & 5-minute word-for-word voiceover script
-├── record_5min_demo.py                # Automated 1080p Playwright 5-minute demo recorder
-├── recovery_5min_pitch_demo.mp4       # Pre-rendered 1080p 5-minute screen recording
+├── DEMO_SCRIPT.md                     # 2-minute judge demo & pitch script
 ├── ARCHITECTURE.md                    # Deep-dive architectural specification
 ├── API_REFERENCE.md                   # REST and WebSocket API documentation
 └── README.md
@@ -402,15 +375,6 @@ npm install
 npm run dev -- --host 0.0.0.0 --port 3000
 ```
 *Frontend runs at: `http://localhost:3000`*
-
----
-
-### Step 4 (Optional): Run Automated 5-Minute Demo Recording
-```bash
-# In project root with backend (:8000) and frontend (:3000) running:
-python record_5min_demo.py
-```
-*Generates an uncompressed 1080p HD recording at [`recovery_5min_pitch_demo.mp4`](./recovery_5min_pitch_demo.mp4).*
 
 ---
 
