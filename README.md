@@ -321,7 +321,6 @@ ai-revenue-recovery/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                     # Automated GitHub Actions CI test & build pipeline
-├── DEMO_SCRIPT.md                     # 2-minute judge demo & pitch script
 ├── ARCHITECTURE.md                    # Deep-dive architectural specification
 ├── API_REFERENCE.md                   # REST and WebSocket API documentation
 └── README.md
