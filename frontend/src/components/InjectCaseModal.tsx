@@ -4,6 +4,7 @@ import {
   RotateCcw, ArrowRight, Zap, Check 
 } from 'lucide-react';
 import { useToast } from './Toast';
+import { authFetch } from '../utils/api';
 
 interface InjectCaseModalProps {
   isOpen: boolean;
@@ -121,11 +122,10 @@ export const InjectCaseModal: React.FC<InjectCaseModalProps> = ({ isOpen, onClos
   const handleInject = async () => {
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/cases/inject', {
+      const res = await authFetch('/api/cases/inject', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': 'demo-recovery-key-2026'
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           customer_name: customerName,

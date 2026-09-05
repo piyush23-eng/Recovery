@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Case, TraceEvent, LedgerStats } from '../types';
+import { authFetch } from '../utils/api';
 
 const INITIAL_STATS: LedgerStats = {
   total_cases: 300,
@@ -152,55 +153,37 @@ export function useWebSocket() {
     };
   }, [connect]);
 
-  // REST control helpers with API Key authentication
-  const API_KEY = 'demo-recovery-key-2026';
-  const authHeaders = {
-    'Content-Type': 'application/json',
-    'X-API-Key': API_KEY
-  };
-
+  // REST control helpers with API Key authentication via authFetch
   const startSimulation = async () => {
-    await fetch('/api/simulation/start', {
-      method: 'POST',
-      headers: { 'X-API-Key': API_KEY }
-    });
+    await authFetch('/api/simulation/start', { method: 'POST' });
   };
 
   const pauseSimulation = async () => {
-    await fetch('/api/simulation/pause', {
-      method: 'POST',
-      headers: { 'X-API-Key': API_KEY }
-    });
+    await authFetch('/api/simulation/pause', { method: 'POST' });
   };
 
   const stepSimulation = async () => {
-    await fetch('/api/simulation/step', {
-      method: 'POST',
-      headers: { 'X-API-Key': API_KEY }
-    });
+    await authFetch('/api/simulation/step', { method: 'POST' });
   };
 
   const resetSimulation = async (count: number = 300) => {
-    await fetch('/api/simulation/reset', {
+    await authFetch('/api/simulation/reset', {
       method: 'POST',
-      headers: authHeaders,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ count }),
     });
   };
 
   const setSpeedMultiplier = async (speed: number) => {
-    await fetch('/api/simulation/speed', {
+    await authFetch('/api/simulation/speed', {
       method: 'POST',
-      headers: authHeaders,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ speed }),
     });
   };
 
   const runInstant = async () => {
-    await fetch('/api/simulation/run-instant', {
-      method: 'POST',
-      headers: { 'X-API-Key': API_KEY }
-    });
+    await authFetch('/api/simulation/run-instant', { method: 'POST' });
   };
 
   return {

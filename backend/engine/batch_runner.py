@@ -6,7 +6,7 @@ from engine.dataset_generator import generate_synthetic_dataset
 from engine.state_graph import CaseRecoveryWorkflow
 from database import (
     init_db, save_case, load_all_cases, save_audit_entry, 
-    load_all_audit_entries, get_latest_audit_hash, clear_all_db
+    save_case_and_audit, load_all_audit_entries, get_latest_audit_hash, clear_all_db
 )
 
 
@@ -164,9 +164,8 @@ class BatchSimulationRunner:
         if len(self.traces) > 300:
             self.traces = self.traces[-300:]  # keep recent 300 in memory
         
-        # Persist to SQLite Database
-        save_case(case)
-        save_audit_entry(audit)
+        # Persist to SQLite Database in a Single Atomic Transaction
+        save_case_and_audit(case, audit)
         
         self.recalculate_stats()
 

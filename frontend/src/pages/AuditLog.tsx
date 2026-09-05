@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { AuditEntry } from '../types';
 import { formatTime, getAgentColor } from '../utils/formatters';
+import { authFetch, getApiKey, initApiKey } from '../utils/api';
 
 interface AuditLogPageProps {
   onSelectCase: (caseId: string) => void;
@@ -18,11 +19,14 @@ export const AuditLog: React.FC<AuditLogPageProps> = ({ onSelectCase }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState<string>('');
 
   const fetchLogs = async (isInitial: boolean = false) => {
     try {
       if (isInitial) setLoading(true);
-      const res = await fetch('/api/audit-log?limit=250');
+      const key = await initApiKey();
+      if (key) setApiKey(key);
+      const res = await authFetch('/api/audit-log?limit=250');
       if (res.ok) {
         const data = await res.json();
         setLogs(data.logs || []);
@@ -100,7 +104,7 @@ export const AuditLog: React.FC<AuditLogPageProps> = ({ onSelectCase }) => {
 
           {/* Export CSV Pill Button */}
           <a
-            href="/api/audit-log/export"
+            href={apiKey ? `/api/audit-log/export?api_key=${encodeURIComponent(apiKey)}` : '/api/audit-log/export'}
             download="compliance_audit_ledger.csv"
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#0A0A0A] hover:bg-[#222] text-white text-xs font-medium transition-all cursor-pointer shadow-subtle"
           >

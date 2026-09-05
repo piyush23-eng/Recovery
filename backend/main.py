@@ -1,6 +1,7 @@
 import io
 import os
 import csv
+import secrets
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,27 +10,48 @@ from pydantic import BaseModel
 
 from models import Case, AuditEntry, LedgerStats, CaseStateEnum
 from engine.batch_runner import runner
-from database import get_idempotency_key, save_idempotency_key
+from database import (
+    get_idempotency_key, save_idempotency_key,
+    is_payment_reference_used, record_settled_payment
+)
 
-DEFAULT_DEMO_API_KEY = "demo-recovery-key-2026"
-EXPECTED_API_KEY = os.getenv("RECOVERY_API_KEY", DEFAULT_DEMO_API_KEY)
+DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() in ("true", "1", "yes")
+EXPECTED_API_KEY = os.getenv("RECOVERY_API_KEY")
+
+if not EXPECTED_API_KEY:
+    if DEMO_MODE:
+        EXPECTED_API_KEY = os.getenv("DEMO_STATIC_KEY") or f"demo-{secrets.token_hex(12)}"
+        print(f"\n=======================================================")
+        print(f"[SECURITY] DEMO_MODE=true active. No RECOVERY_API_KEY set.")
+        print(f"[SECURITY] Generated dynamic demo key for this session:")
+        print(f"           X-API-Key: {EXPECTED_API_KEY}")
+        print(f"=======================================================\n")
+    else:
+        raise RuntimeError(
+            "FATAL: RECOVERY_API_KEY environment variable is required in production mode. "
+            "Set RECOVERY_API_KEY=<secret> or DEMO_MODE=true for evaluation."
+        )
 
 
-async def require_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
+async def require_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    api_key: Optional[str] = Query(None)
+):
     """
-    Enforces API key authentication across all mutating endpoints.
-    In demo environments, defaults to 'demo-recovery-key-2026'.
+    Enforces API key authentication across all mutating and sensitive endpoints.
+    Supports X-API-Key header and ?api_key query parameter (for direct file downloads).
     """
-    if not x_api_key or x_api_key != EXPECTED_API_KEY:
+    token = x_api_key or api_key
+    if not token or token != EXPECTED_API_KEY:
         raise HTTPException(
             status_code=401,
             detail={
                 "error": "Unauthorized",
-                "message": "Missing or invalid X-API-Key header.",
-                "hint": f"Provide header 'X-API-Key: {DEFAULT_DEMO_API_KEY}' for demo access or configure RECOVERY_API_KEY."
+                "message": "Missing or invalid API key.",
+                "hint": "Provide header 'X-API-Key' or query param '?api_key=' with the authorized key."
             }
         )
-    return x_api_key
+    return token
 
 
 app = FastAPI(
@@ -58,6 +80,15 @@ class SpeedRequest(BaseModel):
 
 class ResetRequest(BaseModel):
     count: Optional[int] = 300
+
+
+@app.get("/api/auth/config")
+async def get_auth_config():
+    """Returns runtime authentication configuration and demo access token if DEMO_MODE=true."""
+    return {
+        "demo_mode": DEMO_MODE,
+        "api_key": EXPECTED_API_KEY if DEMO_MODE else None
+    }
 
 
 @app.get("/api/health")
@@ -120,7 +151,7 @@ async def get_cases(
     }
 
 
-@app.get("/api/cases/{case_id}")
+@app.get("/api/cases/{case_id}", dependencies=[Depends(require_api_key)])
 async def get_case_detail(case_id: str):
     case = runner.cases.get(case_id)
     if not case:
@@ -169,7 +200,7 @@ async def get_audit_log(
     }
 
 
-@app.get("/api/audit-log/verify")
+@app.get("/api/audit-log/verify", dependencies=[Depends(require_api_key)])
 async def verify_audit_log():
     """
     Cryptographically verifies that the append-only audit ledger has not been tampered with
@@ -178,7 +209,7 @@ async def verify_audit_log():
     return runner.verify_audit_log_chain()
 
 
-@app.get("/api/audit-log/export")
+@app.get("/api/audit-log/export", dependencies=[Depends(require_api_key)])
 async def export_audit_log():
     """
     Exports the complete immutable audit trail as a downloadable CSV for compliance certification,
@@ -284,12 +315,12 @@ async def run_instant():
 
 
 class CaseResponseWebhook(BaseModel):
-    event_id: str  # Provider transaction or callback event reference
+    event_id: str  # Required provider event ID / webhook callback transaction ID
     outcome: str   # PAID, DISPUTE, RETRY, STOPPED
+    payment_reference: Optional[str] = None  # Required when outcome == 'PAID'
     amount: Optional[float] = None
     currency: Optional[str] = "INR"
     notes: Optional[str] = None
-    payment_reference: Optional[str] = None
 
 
 @app.post("/api/cases/{case_id}/respond", dependencies=[Depends(require_api_key)])
@@ -297,11 +328,12 @@ async def respond_to_case(case_id: str, req: CaseResponseWebhook):
     """
     Webhook endpoint to asynchronously resolve customer/gateway response for a case in AWAITING_RESPONSE.
     Hardened with:
-    1. Idempotency on event_id to prevent double recovery.
+    1. Idempotency on event_id to prevent duplicate webhook callbacks.
     2. Strict 409 Conflict if case is not in AWAITING_RESPONSE.
-    3. Amount and currency validation routing discrepancies to manual reconciliation (ESCALATED).
+    3. Required unique payment_reference on PAID outcomes to prevent double settlement.
+    4. Amount and currency validation routing discrepancies to manual reconciliation (ESCALATED).
     """
-    # 1. Idempotency Check
+    # 1. Idempotency Check on event_id
     idempotency_key = f"webhook:{req.event_id}"
     cached_response = get_idempotency_key(idempotency_key)
     if cached_response:
@@ -321,10 +353,24 @@ async def respond_to_case(case_id: str, req: CaseResponseWebhook):
             detail=f"Conflict: Case '{case_id}' is in status '{case.state.value}'. Only cases in 'AWAITING_RESPONSE' can be reconciled via webhook."
         )
 
-    # 3. Amount & Currency Validation
+    # 3. Payment Reference Validation on PAID
     reconciliation_needed = False
     reconciliation_reason = None
+
     if req.outcome.upper() == "PAID":
+        if not req.payment_reference or not req.payment_reference.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="payment_reference is required for PAID outcome to ensure settled payment traceability."
+            )
+
+        if is_payment_reference_used(req.payment_reference):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Conflict: payment_reference '{req.payment_reference}' has already been processed for another settled transaction."
+            )
+
+        # 4. Amount & Currency Validation
         if req.amount is not None and abs(req.amount - case.event.amount) > 0.01:
             reconciliation_needed = True
             reconciliation_reason = (
@@ -342,13 +388,23 @@ async def respond_to_case(case_id: str, req: CaseResponseWebhook):
         case_id=case_id,
         outcome=req.outcome,
         notes=req.notes,
-        payment_reference=req.payment_reference or req.event_id,
+        payment_reference=req.payment_reference,
         reconciliation_needed=reconciliation_needed,
         reconciliation_reason=reconciliation_reason
     )
 
     if not resolved_case:
         raise HTTPException(status_code=500, detail=f"Failed to resolve case '{case_id}'")
+
+    # Record settled payment reference if payment was successfully captured
+    if req.outcome.upper() == "PAID" and not reconciliation_needed and req.payment_reference:
+        record_settled_payment(
+            payment_reference=req.payment_reference,
+            case_id=case_id,
+            event_id=req.event_id,
+            amount=resolved_case.recovered_amount,
+            currency=resolved_case.event.currency
+        )
 
     response_payload = {
         "message": f"Case {case_id} successfully reconciled with outcome: {req.outcome}",

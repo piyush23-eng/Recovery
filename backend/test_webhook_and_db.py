@@ -1,13 +1,13 @@
+import sqlite3
 import pytest
 from fastapi.testclient import TestClient
-from main import app
+from main import app, EXPECTED_API_KEY
 from engine.batch_runner import runner
-from models import CaseStateEnum
+from models import Case, RiskEvent, AuditEntry, CaseStateEnum, RiskEventType
 import database
 
 client = TestClient(app)
-API_KEY = "demo-recovery-key-2026"
-AUTH_HEADERS = {"X-API-Key": API_KEY}
+AUTH_HEADERS = {"X-API-Key": EXPECTED_API_KEY}
 
 
 def setup_function():
@@ -17,19 +17,113 @@ def setup_function():
 
 
 def test_api_key_authentication_enforcement():
-    """Mutating endpoints must reject requests with missing or invalid API keys with 401."""
-    # Missing API Key
+    """Mutating & sensitive endpoints must reject requests with missing or invalid API keys with 401."""
+    # 1. Missing API Key on Mutating Endpoint
     res_no_key = client.post("/api/simulation/start")
     assert res_no_key.status_code == 401
     assert "Unauthorized" in res_no_key.json()["detail"]["error"]
 
-    # Invalid API Key
-    res_bad_key = client.post("/api/simulation/start", headers={"X-API-Key": "wrong-key"})
+    # 2. Invalid API Key
+    res_bad_key = client.post("/api/simulation/start", headers={"X-API-Key": "wrong-key-xyz"})
     assert res_bad_key.status_code == 401
 
-    # Valid API Key
+    # 3. Valid API Key on Mutating Endpoint
     res_valid = client.post("/api/simulation/pause", headers=AUTH_HEADERS)
     assert res_valid.status_code == 200
+
+    # 4. Protected Sensitive Read Endpoints
+    res_verify_no_key = client.get("/api/audit-log/verify")
+    assert res_verify_no_key.status_code == 401
+
+    res_verify_valid = client.get("/api/audit-log/verify", headers=AUTH_HEADERS)
+    assert res_verify_valid.status_code == 200
+
+    res_export_query_key = client.get(f"/api/audit-log/export?api_key={EXPECTED_API_KEY}")
+    assert res_export_query_key.status_code == 200
+
+
+def test_audit_entry_plain_insert_no_upsert():
+    """
+    Append-only guarantee: save_audit_entry() must execute a plain INSERT.
+    Inserting a duplicate audit_id must raise sqlite3.IntegrityError (never silently update).
+    """
+    entry1 = AuditEntry(
+        audit_id="AUD-STRICT-001",
+        case_id="CASE-STRICT-01",
+        timestamp="2026-09-05T12:00:00",
+        agent="Signal Ingestion",
+        action="INGEST_EVENT",
+        status="INFO",
+        reason="Initial ingestion",
+        payload={"amount": 1000.0}
+    )
+    database.save_audit_entry(entry1)
+
+    # Attempt duplicate insert with same audit_id but modified payload
+    entry2 = AuditEntry(
+        audit_id="AUD-STRICT-001",
+        case_id="CASE-STRICT-01",
+        timestamp="2026-09-05T12:01:00",
+        agent="Signal Ingestion",
+        action="TAMPER_ATTEMPT",
+        status="BLOCKED",
+        reason="Tamper attempt",
+        payload={"amount": 99999.0}
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        database.save_audit_entry(entry2)
+
+
+def test_atomic_case_and_audit_writes():
+    """
+    save_case_and_audit must be transactional:
+    If audit insert fails due to collision, the case state write must be rolled back.
+    """
+    # 1. Write initial entry
+    audit_prime = AuditEntry(
+        audit_id="AUD-ATOMIC-EXISTING",
+        case_id="CASE-ATOMIC-01",
+        timestamp="2026-09-05T12:00:00",
+        agent="Test Agent",
+        action="INIT",
+        status="INFO",
+        reason="Setup",
+        payload={}
+    )
+    database.save_audit_entry(audit_prime)
+
+    # 2. Prepare case in DETECTED state
+    event = RiskEvent(
+        event_id="EVT-ATOMIC-01",
+        case_id="CASE-ATOMIC-01",
+        event_type=RiskEventType.PAYMENT_FAILED,
+        customer_id="CUST-01",
+        customer_name="Atomic Customer",
+        amount=5000.0
+    )
+    case_initial = Case(case_id="CASE-ATOMIC-01", state=CaseStateEnum.DETECTED, event=event)
+    database.save_case(case_initial)
+
+    # 3. Try to update case to RECOVERED while pairing with duplicate audit_id
+    case_updated = Case(case_id="CASE-ATOMIC-01", state=CaseStateEnum.RECOVERED, event=event, recovered_amount=5000.0)
+    audit_colliding = AuditEntry(
+        audit_id="AUD-ATOMIC-EXISTING",  # Will cause IntegrityError
+        case_id="CASE-ATOMIC-01",
+        timestamp="2026-09-05T12:05:00",
+        agent="Outcome & Audit",
+        action="RECOVER",
+        status="RECOVERED",
+        reason="Colliding update",
+        payload={}
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        database.save_case_and_audit(case_updated, audit_colliding)
+
+    # Assert Case state in DB remained DETECTED (transaction was rolled back)
+    persisted_case = database.get_case("CASE-ATOMIC-01")
+    assert persisted_case is not None
+    assert persisted_case.state == CaseStateEnum.DETECTED, "Case must NOT have updated to RECOVERED due to rollback"
 
 
 def test_sqlite_persistence_across_restart():
@@ -59,6 +153,63 @@ def test_sqlite_persistence_across_restart():
     verify_result = reloaded_runner.verify_audit_log_chain()
     assert verify_result["verified"] is True
     assert verify_result["total_entries"] == original_audit_count
+
+
+def test_payment_reference_required_and_unique_constraint():
+    """
+    PAID webhook outcomes must:
+    1. Require payment_reference (422 if missing).
+    2. Enforce uniqueness on payment_reference (409 if duplicate across settlements).
+    """
+    # 1. Inject case 1
+    inj1 = client.post("/api/cases/inject", headers=AUTH_HEADERS, json={
+        "customer_name": "Customer One",
+        "amount": 10000.0,
+        "event_type": "checkout_abandoned",
+        "await_response": True
+    })
+    case1_id = inj1.json()["case_id"]
+
+    # Missing payment_reference on PAID -> 422
+    res_no_ref = client.post(f"/api/cases/{case1_id}/respond", headers=AUTH_HEADERS, json={
+        "event_id": "EVT-PAY-111",
+        "outcome": "PAID",
+        "amount": 10000.0,
+        "currency": "INR"
+        # payment_reference omitted
+    })
+    assert res_no_ref.status_code == 422
+    assert "payment_reference is required" in res_no_ref.json()["detail"]
+
+    # Successful payment with unique payment_reference
+    res_paid1 = client.post(f"/api/cases/{case1_id}/respond", headers=AUTH_HEADERS, json={
+        "event_id": "EVT-PAY-111",
+        "outcome": "PAID",
+        "payment_reference": "pay_UNIQUE_9999",
+        "amount": 10000.0,
+        "currency": "INR"
+    })
+    assert res_paid1.status_code == 200
+    assert res_paid1.json()["state"] == "RECOVERED"
+
+    # 2. Inject case 2 and attempt to reuse same payment_reference
+    inj2 = client.post("/api/cases/inject", headers=AUTH_HEADERS, json={
+        "customer_name": "Customer Two",
+        "amount": 10000.0,
+        "event_type": "checkout_abandoned",
+        "await_response": True
+    })
+    case2_id = inj2.json()["case_id"]
+
+    res_paid2_dup = client.post(f"/api/cases/{case2_id}/respond", headers=AUTH_HEADERS, json={
+        "event_id": "EVT-PAY-222",
+        "outcome": "PAID",
+        "payment_reference": "pay_UNIQUE_9999",  # Duplicate payment reference
+        "amount": 10000.0,
+        "currency": "INR"
+    })
+    assert res_paid2_dup.status_code == 409
+    assert "already been processed" in res_paid2_dup.json()["detail"]
 
 
 def test_webhook_idempotency_and_state_hardening():
@@ -91,10 +242,10 @@ def test_webhook_idempotency_and_state_hardening():
     webhook_payload = {
         "event_id": "EVT-PAY-TEST-9988",
         "outcome": "PAID",
+        "payment_reference": "pay_Oq129X01",
         "amount": 15000.0,
         "currency": "INR",
-        "notes": "Payment captured via Razorpay UPI",
-        "payment_reference": "pay_Oq129X01"
+        "notes": "Payment captured via Razorpay UPI"
     }
     resp1 = client.post(f"/api/cases/{case_id}/respond", headers=AUTH_HEADERS, json=webhook_payload)
     assert resp1.status_code == 200
@@ -120,6 +271,7 @@ def test_webhook_idempotency_and_state_hardening():
     new_payload = {
         "event_id": "EVT-PAY-NEW-3344",
         "outcome": "PAID",
+        "payment_reference": "pay_Oq129X02",
         "amount": 15000.0,
         "currency": "INR"
     }
@@ -147,6 +299,7 @@ def test_webhook_payment_mismatch_reconciliation():
     mismatch_payload = {
         "event_id": "EVT-MISMATCH-1122",
         "outcome": "PAID",
+        "payment_reference": "pay_MISMATCH_881",
         "amount": 12000.0,  # Expected 25,000 but received 12,000
         "currency": "INR",
         "notes": "Customer made partial payment"

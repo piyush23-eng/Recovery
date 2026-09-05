@@ -2,6 +2,7 @@ import React from 'react';
 import { X, ShieldCheck, Download, CheckCircle2, AlertTriangle, FileText } from 'lucide-react';
 import { LedgerStats } from '../types';
 import { formatINR } from '../utils/formatters';
+import { getApiKey } from '../utils/api';
 
 interface AttestationModalProps {
   isOpen: boolean;
@@ -123,7 +124,7 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({ isOpen, onCl
         {/* Footer Actions */}
         <div className="flex items-center justify-between pt-2">
           <a
-            href="/api/audit-log/export"
+            href={getApiKey() ? `/api/audit-log/export?api_key=${encodeURIComponent(getApiKey())}` : '/api/audit-log/export'}
             download="compliance_audit_ledger.csv"
             className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#0A0A0A] hover:bg-[#222] text-white text-xs font-semibold cursor-pointer shadow-subtle transition-all"
           >
