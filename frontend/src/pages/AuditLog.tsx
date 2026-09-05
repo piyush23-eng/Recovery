@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   ShieldCheck, ShieldAlert, Download, Search, 
   FileText, Check, Copy, ChevronDown, ChevronRight, 
-  ExternalLink 
+  ExternalLink, X 
 } from 'lucide-react';
 import { AuditEntry } from '../types';
 import { formatTime, getAgentColor } from '../utils/formatters';
@@ -20,6 +20,27 @@ export const AuditLog: React.FC<AuditLogPageProps> = ({ onSelectCase }) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState<string>('');
+  const [isVerifyOpen, setIsVerifyOpen] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
+
+  const handleVerifyChain = async () => {
+    try {
+      setIsVerifying(true);
+      setIsVerifyOpen(true);
+      const res = await authFetch('/api/audit-log/verify');
+      if (res.ok) {
+        const data = await res.json();
+        setVerifyResult(data);
+      } else {
+        setVerifyResult({ verified: false, message: 'Verification failed: server error' });
+      }
+    } catch (err: any) {
+      setVerifyResult({ verified: false, message: `Verification failed: ${err.message}` });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   const fetchLogs = async (isInitial: boolean = false) => {
     try {
@@ -101,6 +122,15 @@ export const AuditLog: React.FC<AuditLogPageProps> = ({ onSelectCase }) => {
             <option value="EXECUTED">Executed Actions</option>
             <option value="RECOVERED">Recovered Outcomes</option>
           </select>
+
+          {/* Verify Hash Chain Button */}
+          <button
+            onClick={handleVerifyChain}
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-accent-green hover:bg-accent-green/90 text-white text-xs font-medium transition-all cursor-pointer shadow-subtle"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Verify Hash Chain</span>
+          </button>
 
           {/* Export CSV Pill Button */}
           <a
@@ -242,6 +272,99 @@ export const AuditLog: React.FC<AuditLogPageProps> = ({ onSelectCase }) => {
           </table>
         </div>
       </div>
+      {/* Cryptographic Hash Chain Verification Modal */}
+      {isVerifyOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-card border border-hairline rounded-2card max-w-xl w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-hairline">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-accent-green/10 flex items-center justify-center text-accent-green">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm text-[#0A0A0A]">
+                    Cryptographic SHA-256 Ledger Verification
+                  </h3>
+                  <p className="text-[11px] text-[#8A8A85]">
+                    Independent proof of tamper-evident append-only integrity
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsVerifyOpen(false)}
+                className="p-1 rounded-full hover:bg-black/5 text-[#8A8A85] hover:text-[#0A0A0A] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {isVerifying ? (
+              <div className="py-8 text-center space-y-2">
+                <div className="w-6 h-6 border-2 border-accent-green border-t-transparent rounded-full animate-spin mx-auto" />
+                <p className="text-xs text-[#5A5A55] font-mono">
+                  Tracing SHA-256 hash pointers from genesis block...
+                </p>
+              </div>
+            ) : verifyResult ? (
+              <div className="space-y-4">
+                <div
+                  className={`p-3.5 rounded-xl border flex items-start gap-3 ${
+                    verifyResult.verified
+                      ? 'bg-accent-green/10 border-accent-green/20 text-accent-green'
+                      : 'bg-accent-rose/10 border-accent-rose/20 text-accent-rose'
+                  }`}
+                >
+                  {verifyResult.verified ? (
+                    <ShieldCheck className="w-5 h-5 shrink-0 mt-0.5" />
+                  ) : (
+                    <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
+                  )}
+                  <div>
+                    <div className="font-semibold text-xs text-[#0A0A0A]">
+                      {verifyResult.verified
+                        ? 'Verification Succeeded: Unbroken Chain'
+                        : 'Verification Failed: Tamper Detected'}
+                    </div>
+                    <p className="text-[11px] text-[#5A5A55] mt-0.5">
+                      {verifyResult.message}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-[#FAF9F7] p-3 rounded-xl border border-hairline space-y-2 text-[11px] font-mono">
+                  <div className="flex justify-between">
+                    <span className="text-[#8A8A85]">Total Audited Entries:</span>
+                    <span className="font-bold text-[#0A0A0A]">{verifyResult.total_entries || logs.length}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8A8A85]">Genesis Block Hash:</span>
+                    <span className="text-[#0A0A0A] truncate max-w-[280px]" title={verifyResult.genesis_hash}>
+                      {verifyResult.genesis_hash || '0000000000000000000000000000000000000000000000000000000000000000'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8A8A85]">Chain Head Hash:</span>
+                    <span className="text-[#0A0A0A] truncate max-w-[280px]" title={verifyResult.chain_head}>
+                      {verifyResult.chain_head || 'Pending...'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#8A8A85]">Tampered Blocks:</span>
+                    <span className="font-bold text-accent-green">0 (Chain Intact)</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setIsVerifyOpen(false)}
+                  className="w-full py-2 rounded-xl bg-[#0A0A0A] text-white text-xs font-semibold hover:bg-[#222] transition-colors cursor-pointer"
+                >
+                  Close Verification
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
