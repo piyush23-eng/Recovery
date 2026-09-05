@@ -102,7 +102,7 @@ def node_outcome_audit(state: AgentGraphState) -> AgentGraphState:
 
 def compliance_routing_condition(state: AgentGraphState) -> str:
     """
-    Conditional edge evaluator:
+    Conditional edge evaluator for compliance:
     - If compliance allowed -> routes to 'execution'
     - If compliance vetoed -> skips execution and routes directly to 'outcome_audit'
     """
@@ -110,6 +110,18 @@ def compliance_routing_condition(state: AgentGraphState) -> str:
     if case and case.compliance and not case.compliance.allowed:
         return "outcome_audit"
     return "execution"
+
+
+def execution_routing_condition(state: AgentGraphState) -> str:
+    """
+    Conditional edge evaluator for execution:
+    - If await_response is set -> ends graph at execution, leaving case in AWAITING_RESPONSE for webhook.
+    - Otherwise -> routes to 'outcome_audit' for automated simulation resolution.
+    """
+    raw_event = state.get("raw_event", {})
+    if raw_event.get("await_response"):
+        return END
+    return "outcome_audit"
 
 
 # --- Compile LangGraph StateGraph ---
@@ -134,7 +146,14 @@ graph_builder.add_conditional_edges(
         "outcome_audit": "outcome_audit"
     }
 )
-graph_builder.add_edge("execution", "outcome_audit")
+graph_builder.add_conditional_edges(
+    "execution",
+    execution_routing_condition,
+    {
+        END: END,
+        "outcome_audit": "outcome_audit"
+    }
+)
 graph_builder.add_edge("outcome_audit", END)
 
 recovery_langgraph = graph_builder.compile()

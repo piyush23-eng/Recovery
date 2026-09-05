@@ -35,10 +35,17 @@ def resolve_outcome_and_audit(
     if manual_outcome:
         norm_outcome = manual_outcome.upper()
         if norm_outcome == "PAID":
-            final_state = CaseStateEnum.RECOVERED
-            recovered_amount = event.amount
-            outcome_reason = f"Customer completed payment of ₹{event.amount:,.2f} via live gateway webhook."
-            audit_status = "RECOVERED"
+            if manual_payload and manual_payload.get("reconciliation_needed"):
+                final_state = CaseStateEnum.ESCALATED
+                recovered_amount = 0.0
+                outcome_reason = manual_payload.get("reconciliation_reason") or "Payment mismatch detected via webhook; routed to manual reconciliation."
+                audit_status = "ESCALATED"
+            else:
+                final_state = CaseStateEnum.RECOVERED
+                recovered_amount = event.amount
+                ref_str = f" (Ref: {manual_payload.get('payment_reference')})" if manual_payload and manual_payload.get("payment_reference") else ""
+                outcome_reason = f"Customer completed payment of ₹{event.amount:,.2f} via live gateway webhook{ref_str}."
+                audit_status = "RECOVERED"
         elif norm_outcome == "DISPUTE":
             final_state = CaseStateEnum.ESCALATED
             outcome_reason = "Customer raised a billing dispute via webhook; escalated to credit desk."

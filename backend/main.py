@@ -1,13 +1,36 @@
 import io
+import os
 import csv
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException, Header
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from models import Case, AuditEntry, LedgerStats
+from models import Case, AuditEntry, LedgerStats, CaseStateEnum
 from engine.batch_runner import runner
+from database import get_idempotency_key, save_idempotency_key
+
+DEFAULT_DEMO_API_KEY = "demo-recovery-key-2026"
+EXPECTED_API_KEY = os.getenv("RECOVERY_API_KEY", DEFAULT_DEMO_API_KEY)
+
+
+async def require_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
+    """
+    Enforces API key authentication across all mutating endpoints.
+    In demo environments, defaults to 'demo-recovery-key-2026'.
+    """
+    if not x_api_key or x_api_key != EXPECTED_API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "Unauthorized",
+                "message": "Missing or invalid X-API-Key header.",
+                "hint": f"Provide header 'X-API-Key: {DEFAULT_DEMO_API_KEY}' for demo access or configure RECOVERY_API_KEY."
+            }
+        )
+    return x_api_key
+
 
 app = FastAPI(
     title="Recovery — Autonomous Revenue Recovery Platform",
@@ -27,8 +50,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
-
-IDEMPOTENCY_CACHE: Dict[str, Case] = {}
 
 
 class SpeedRequest(BaseModel):
@@ -202,7 +223,7 @@ async def export_audit_log():
     )
 
 
-@app.post("/api/simulation/start")
+@app.post("/api/simulation/start", dependencies=[Depends(require_api_key)])
 async def start_simulation():
     runner.start()
     await runner.broadcast("SIMULATION_STATE", {
@@ -213,7 +234,7 @@ async def start_simulation():
     return {"message": "Simulation started", "is_running": runner.is_running, "is_paused": runner.is_paused}
 
 
-@app.post("/api/simulation/pause")
+@app.post("/api/simulation/pause", dependencies=[Depends(require_api_key)])
 async def pause_simulation():
     runner.pause()
     await runner.broadcast("SIMULATION_STATE", {
@@ -224,7 +245,7 @@ async def pause_simulation():
     return {"message": "Simulation paused", "is_paused": runner.is_paused}
 
 
-@app.post("/api/simulation/step")
+@app.post("/api/simulation/step", dependencies=[Depends(require_api_key)])
 async def step_simulation():
     stepped = await runner.step()
     return {
@@ -235,21 +256,21 @@ async def step_simulation():
     }
 
 
-@app.post("/api/simulation/reset")
+@app.post("/api/simulation/reset", dependencies=[Depends(require_api_key)])
 async def reset_simulation(req: ResetRequest):
     runner.reset(req.count or 300)
     await runner.broadcast("SIMULATION_RESET", {"total_cases": len(runner.raw_dataset)})
     return {"message": "Simulation reset", "total_cases": len(runner.raw_dataset)}
 
 
-@app.post("/api/simulation/speed")
+@app.post("/api/simulation/speed", dependencies=[Depends(require_api_key)])
 async def set_speed(req: SpeedRequest):
     runner.set_speed(req.speed)
     await runner.broadcast("SPEED_CHANGED", {"speed": req.speed})
     return {"message": "Speed updated", "speed": req.speed}
 
 
-@app.post("/api/simulation/run-instant")
+@app.post("/api/simulation/run-instant", dependencies=[Depends(require_api_key)])
 async def run_instant():
     """Processes remaining batch instantly with zero delay"""
     runner.set_speed(100.0)
@@ -263,26 +284,83 @@ async def run_instant():
 
 
 class CaseResponseWebhook(BaseModel):
-    outcome: str  # PAID, DISPUTE, RETRY, STOPPED
+    event_id: str  # Provider transaction or callback event reference
+    outcome: str   # PAID, DISPUTE, RETRY, STOPPED
+    amount: Optional[float] = None
+    currency: Optional[str] = "INR"
     notes: Optional[str] = None
     payment_reference: Optional[str] = None
 
 
-@app.post("/api/cases/{case_id}/respond")
+@app.post("/api/cases/{case_id}/respond", dependencies=[Depends(require_api_key)])
 async def respond_to_case(case_id: str, req: CaseResponseWebhook):
     """
     Webhook endpoint to asynchronously resolve customer/gateway response for a case in AWAITING_RESPONSE.
+    Hardened with:
+    1. Idempotency on event_id to prevent double recovery.
+    2. Strict 409 Conflict if case is not in AWAITING_RESPONSE.
+    3. Amount and currency validation routing discrepancies to manual reconciliation (ESCALATED).
     """
-    resolved_case = await runner.resolve_case_response(case_id, req.outcome, req.notes or req.payment_reference)
+    # 1. Idempotency Check
+    idempotency_key = f"webhook:{req.event_id}"
+    cached_response = get_idempotency_key(idempotency_key)
+    if cached_response:
+        return {
+            **cached_response,
+            "idempotent": True
+        }
+
+    # 2. Case existence & State Check
+    case = runner.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Case '{case_id}' not found")
+    
+    if case.state != CaseStateEnum.AWAITING_RESPONSE:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Conflict: Case '{case_id}' is in status '{case.state.value}'. Only cases in 'AWAITING_RESPONSE' can be reconciled via webhook."
+        )
+
+    # 3. Amount & Currency Validation
+    reconciliation_needed = False
+    reconciliation_reason = None
+    if req.outcome.upper() == "PAID":
+        if req.amount is not None and abs(req.amount - case.event.amount) > 0.01:
+            reconciliation_needed = True
+            reconciliation_reason = (
+                f"Payment amount mismatch: Expected {case.event.currency} {case.event.amount:,.2f}, "
+                f"received {req.currency or 'INR'} {req.amount:,.2f}. Escalated for manual reconciliation."
+            )
+        elif req.currency and req.currency != case.event.currency:
+            reconciliation_needed = True
+            reconciliation_reason = (
+                f"Payment currency mismatch: Expected {case.event.currency}, "
+                f"received {req.currency}. Escalated for manual reconciliation."
+            )
+
+    resolved_case = await runner.resolve_case_response(
+        case_id=case_id,
+        outcome=req.outcome,
+        notes=req.notes,
+        payment_reference=req.payment_reference or req.event_id,
+        reconciliation_needed=reconciliation_needed,
+        reconciliation_reason=reconciliation_reason
+    )
+
     if not resolved_case:
-        raise HTTPException(status_code=404, detail=f"Case '{case_id}' not found or unable to resolve")
-    return {
+        raise HTTPException(status_code=500, detail=f"Failed to resolve case '{case_id}'")
+
+    response_payload = {
         "message": f"Case {case_id} successfully reconciled with outcome: {req.outcome}",
         "case_id": case_id,
         "state": resolved_case.state.value,
         "recovered_amount": resolved_case.recovered_amount,
-        "case": resolved_case
+        "case": resolved_case.model_dump(),
+        "idempotent": False
     }
+
+    save_idempotency_key(idempotency_key, response_payload)
+    return response_payload
 
 
 class InjectCaseRequest(BaseModel):
@@ -301,40 +379,41 @@ class InjectCaseRequest(BaseModel):
     is_disputed: Optional[bool] = False
     days_overdue: Optional[int] = 7
     replied_stop: Optional[bool] = False
+    await_response: Optional[bool] = False
 
 
-@app.post("/api/cases/inject")
+@app.post("/api/cases/inject", dependencies=[Depends(require_api_key)])
 async def inject_case(
     req: InjectCaseRequest,
-    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
-    api_key: Optional[str] = Header(None, alias="X-API-Key")
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key")
 ):
     """
     Allows judges or operators to inject an ad-hoc custom risk event live into the running 6-agent system.
-    Supports Idempotency-Key header to prevent duplicate execution.
+    Supports Idempotency-Key header backed by SQLite persistence to prevent duplicate execution.
     """
-    if idempotency_key and idempotency_key in IDEMPOTENCY_CACHE:
-        cached_case = IDEMPOTENCY_CACHE[idempotency_key]
-        return {
-            "message": "Case retrieved from idempotency cache (already processed)",
-            "case_id": cached_case.case_id,
-            "case": cached_case,
-            "idempotent": True
-        }
+    if idempotency_key:
+        cached_response = get_idempotency_key(f"inject:{idempotency_key}")
+        if cached_response:
+            return {
+                **cached_response,
+                "idempotent": True
+            }
 
     case = await runner.inject_custom_event(req.model_dump())
     if not case:
         raise HTTPException(status_code=500, detail="Failed to process injected case")
 
-    if idempotency_key:
-        IDEMPOTENCY_CACHE[idempotency_key] = case
-
-    return {
+    response_payload = {
         "message": "Case ingested and processed across all 6 agents",
         "case_id": case.case_id,
-        "case": case,
+        "case": case.model_dump(),
         "idempotent": False
     }
+
+    if idempotency_key:
+        save_idempotency_key(f"inject:{idempotency_key}", response_payload)
+
+    return response_payload
 
 
 @app.websocket("/ws")

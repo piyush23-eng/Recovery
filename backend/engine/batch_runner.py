@@ -4,23 +4,31 @@ from fastapi import WebSocket
 from models import Case, TraceEvent, AuditEntry, LedgerStats, CaseStateEnum, compute_audit_entry_hash
 from engine.dataset_generator import generate_synthetic_dataset
 from engine.state_graph import CaseRecoveryWorkflow
+from database import (
+    init_db, save_case, load_all_cases, save_audit_entry, 
+    load_all_audit_entries, get_latest_audit_hash, clear_all_db
+)
 
 
 class BatchSimulationRunner:
     def __init__(self):
+        init_db()
         self.raw_dataset: List[Dict[str, Any]] = generate_synthetic_dataset(300, seed=42)
-        self.cases: Dict[str, Case] = {}
-        self.audit_log: List[AuditEntry] = []
-        self.latest_audit_hash: str = "0" * 64
+        self.cases: Dict[str, Case] = load_all_cases()
+        self.audit_log: List[AuditEntry] = load_all_audit_entries()
+        self.latest_audit_hash: str = get_latest_audit_hash()
         self.traces: List[TraceEvent] = []
         self.stats = LedgerStats(total_cases=len(self.raw_dataset))
         
         self.is_running: bool = False
         self.is_paused: bool = False
-        self.current_index: int = 0
+        self.current_index: int = len(self.cases) if self.cases else 0
         self.speed_multiplier: float = 1.0  # 1.0 = base speed, 5.0 = 5x faster, 0.0 = instant
         self.active_websockets: Set[WebSocket] = set()
         self._task: Optional[asyncio.Task] = None
+        
+        if self.cases:
+            self.recalculate_stats()
 
     async def connect_ws(self, websocket: WebSocket):
         await websocket.accept()
@@ -155,6 +163,11 @@ class BatchSimulationRunner:
         self.traces.append(trace)
         if len(self.traces) > 300:
             self.traces = self.traces[-300:]  # keep recent 300 in memory
+        
+        # Persist to SQLite Database
+        save_case(case)
+        save_audit_entry(audit)
+        
         self.recalculate_stats()
 
         # Broadcast live updates
@@ -210,7 +223,15 @@ class BatchSimulationRunner:
             "message": f"Cryptographic verification passed: All {len(self.audit_log)} audit entries form an unbroken, tamper-evident SHA-256 chain."
         }
 
-    async def resolve_case_response(self, case_id: str, outcome: str, notes: Optional[str] = None) -> Optional[Case]:
+    async def resolve_case_response(
+        self,
+        case_id: str,
+        outcome: str,
+        notes: Optional[str] = None,
+        payment_reference: Optional[str] = None,
+        reconciliation_needed: bool = False,
+        reconciliation_reason: Optional[str] = None
+    ) -> Optional[Case]:
         """
         Reconciles a customer response received asynchronously via webhook for a case in AWAITING_RESPONSE.
         """
@@ -218,7 +239,13 @@ class BatchSimulationRunner:
         if not case:
             return None
         from agents.outcome_audit_agent import resolve_outcome_and_audit
-        case, trace, audit = resolve_outcome_and_audit(case, manual_outcome=outcome, manual_payload={"notes": notes})
+        manual_payload = {
+            "notes": notes,
+            "payment_reference": payment_reference,
+            "reconciliation_needed": reconciliation_needed,
+            "reconciliation_reason": reconciliation_reason
+        }
+        case, trace, audit = resolve_outcome_and_audit(case, manual_outcome=outcome, manual_payload=manual_payload)
         await self._handle_step(case, trace, audit)
         return case
 
@@ -269,6 +296,10 @@ class BatchSimulationRunner:
         self.is_paused = False
         self.current_index = 0
         self.raw_dataset = generate_synthetic_dataset(count, seed=seed)
+        
+        # Clear SQLite DB
+        clear_all_db()
+        
         self.cases.clear()
         self.audit_log.clear()
         self.latest_audit_hash = "0" * 64
@@ -318,6 +349,7 @@ class BatchSimulationRunner:
             "retry_count": int(event_data.get("retry_count", 0)),
             "local_hour": int(event_data.get("local_hour", 14)),
             "cumulative_cost": 0.0,
+            "await_response": bool(event_data.get("await_response", False)),
             "metadata": meta
         }
         

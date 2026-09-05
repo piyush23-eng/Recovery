@@ -23,6 +23,8 @@ Thumbs.db
 *.swp
 *.swo
 
-# Local environment
+# Local environment & Database
 .env
 .env.local
+*.db
+backend/recovery.db

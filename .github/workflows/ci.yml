@@ -26,17 +26,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
 
-      - name: Run Compliance Hard Gates Test Suite
+      - name: Run Full Pytest Test Suite (Persistence, Cryptographic Hash Chain, Determinism & Compliance Gates)
         run: |
-          python backend/test_compliance_hard_gates.py
-
-      - name: Run LangGraph Pipeline StateGraph Test
-        run: |
-          python backend/test_pipeline.py
-
-      - name: Run Cryptographic SHA-256 Audit Hash Chain Verification
-        run: |
-          pytest backend/test_audit_hash_chain.py
+          pytest backend/ -v
 
   frontend-build:
     name: Frontend Typecheck & Production Build

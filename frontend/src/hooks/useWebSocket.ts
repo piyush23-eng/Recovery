@@ -152,23 +152,38 @@ export function useWebSocket() {
     };
   }, [connect]);
 
-  // REST control helpers
+  // REST control helpers with API Key authentication
+  const API_KEY = 'demo-recovery-key-2026';
+  const authHeaders = {
+    'Content-Type': 'application/json',
+    'X-API-Key': API_KEY
+  };
+
   const startSimulation = async () => {
-    await fetch('/api/simulation/start', { method: 'POST' });
+    await fetch('/api/simulation/start', {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY }
+    });
   };
 
   const pauseSimulation = async () => {
-    await fetch('/api/simulation/pause', { method: 'POST' });
+    await fetch('/api/simulation/pause', {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY }
+    });
   };
 
   const stepSimulation = async () => {
-    await fetch('/api/simulation/step', { method: 'POST' });
+    await fetch('/api/simulation/step', {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY }
+    });
   };
 
   const resetSimulation = async (count: number = 300) => {
     await fetch('/api/simulation/reset', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({ count }),
     });
   };
@@ -176,13 +191,16 @@ export function useWebSocket() {
   const setSpeedMultiplier = async (speed: number) => {
     await fetch('/api/simulation/speed', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({ speed }),
     });
   };
 
   const runInstant = async () => {
-    await fetch('/api/simulation/run-instant', { method: 'POST' });
+    await fetch('/api/simulation/run-instant', {
+      method: 'POST',
+      headers: { 'X-API-Key': API_KEY }
+    });
   };
 
   return {

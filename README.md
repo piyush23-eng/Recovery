@@ -47,13 +47,32 @@ To ensure complete engineering transparency and rigorous technical integrity, he
 
 | Component / Layer | Status | Implementation Details |
 | :--- | :--- | :--- |
-| **Agent Pipeline & State Machine** | **REAL** | Compiled LangGraph `StateGraph` with explicit nodes and conditional edge routing (`add_conditional_edges`) around compliance vetoes. |
+| **Agent Pipeline & State Machine** | **REAL** | Compiled LangGraph `StateGraph` with explicit nodes and conditional edge routing (`add_conditional_edges`) around compliance vetoes and async webhook awaiting. |
+| **Persistence & State Recovery** | **REAL** | SQLite database (`recovery.db`) storing cases, audit log, and idempotency keys; full state survives server process restarts and laptop sleep. |
 | **Compliance Hard Gates** | **REAL** | 7 deterministic Python evaluation rules executed *before* any action dispatch; vetoes strictly halt execution with zero bypasses. |
 | **Tamper-Evident Audit Ledger** | **REAL** | Append-only cryptographic SHA-256 hash-chaining across all audit entries from genesis (`0`*64) to head; verifiable via `GET /api/audit-log/verify`. |
+| **API Security & Idempotency** | **REAL** | `X-API-Key` verification across all mutating endpoints + SQLite-backed `event_id` & `Idempotency-Key` guards preventing duplicate processing. |
 | **WebSocket Synchronization Hub** | **REAL** | Full bidirectional asynchronous broadcast engine emitting sub-millisecond trace payloads to React UI. |
 | **Recovery Outcomes** | **SIMULATED** | Calibrated probability distribution evaluated deterministically with `seed=42` (not live bank gateway settlements). |
 | **Channel Dispatch (WhatsApp/Voice/API)** | **SIMULATED** | Structured payload synthesis, localized Hinglish copy, and per-message unit-economics tracking (no live third-party API keys required). |
-| **Authentication & Authorization** | **DEMO ONLY** | Lightweight `X-API-Key` and `Idempotency-Key` headers for sandbox exploration (no production OAuth/IAM layer). |
+
+---
+
+## 🚀 Production Roadmap
+
+While this build is fully functional with compiled LangGraph agents, SQLite persistence, and cryptographic audit proofs, moving from a buildathon prototype to multi-tenant enterprise production involves specific architectural scaling:
+
+1. **External Immutable Audit Anchoring**:
+   * *Current Build*: The SHA-256 audit hash-chain is stored in SQLite and cryptographically verified in memory via `GET /api/audit-log/verify`.
+   * *Production Target*: Anchor periodic Merkle root checkpoints to external immutable storage (e.g. AWS S3 Object Lock in WORM compliance mode, or public RFC 3161 timestamping authorities) so the audit trail survives not only process restarts but also host-level infrastructure compromise.
+
+2. **Live Payment Settlement & Multi-Gateway Reconciliation**:
+   * *Current Build*: Recovery outcomes run on a calibrated deterministic simulation model with support for live webhook resolution (`POST /api/cases/{case_id}/respond`).
+   * *Production Target*: Connect directly to real payment gateway webhooks (Razorpay, Cashfree, Stripe, PayU) and perform end-of-day nodal account reconciliation against settlement batch files (MT940/CAMT.053) rather than inferring outcomes from simulation.
+
+3. **Multi-Tenant Authentication & Scoped RBAC**:
+   * *Current Build*: Authenticates mutating endpoints via a shared `X-API-Key` header with default demo fallback (`demo-recovery-key-2026`).
+   * *Production Target*: Implement per-merchant OAuth 2.0 / JWT multi-tenant isolation, granular endpoint-level permissions (`recovery:write`, `audit:read`, `compliance:admin`), and KMS-managed API credential rotation.
 
 ---
 

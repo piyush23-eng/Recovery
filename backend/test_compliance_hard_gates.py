@@ -2,7 +2,7 @@ import sys
 from engine.state_graph import CaseRecoveryWorkflow
 from models import CaseStateEnum, ComplianceRuleStatus
 
-def run_compliance_tests():
+def test_compliance_guardrails():
     print("==================================================")
     print("RUNNING STRICT COMPLIANCE GUARDRAIL AUDIT SUITE")
     print("==================================================")
@@ -161,4 +161,4 @@ def run_compliance_tests():
     print("==================================================")
 
 if __name__ == "__main__":
-    run_compliance_tests()
+    test_compliance_guardrails()

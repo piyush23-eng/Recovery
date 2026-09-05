@@ -123,7 +123,10 @@ export const InjectCaseModal: React.FC<InjectCaseModalProps> = ({ isOpen, onClos
     try {
       const res = await fetch('/api/cases/inject', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': 'demo-recovery-key-2026'
+        },
         body: JSON.stringify({
           customer_name: customerName,
           amount: Number(amount),

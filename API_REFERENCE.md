@@ -69,8 +69,19 @@ Returns paginated case records with optional multi-attribute filtering.
 #### `GET /api/cases/{case_id}`
 Returns complete detail, history progression, compliance checks, and audit entries for a specific case.
 
+### Authentication
+All mutating endpoints (`POST /api/cases/inject`, `POST /api/cases/{case_id}/respond`, `POST /api/simulation/*`) require the `X-API-Key` header:
+- Header: `X-API-Key: demo-recovery-key-2026` (configurable via `RECOVERY_API_KEY` env var)
+- Missing or invalid keys return `HTTP 401 Unauthorized`.
+
+---
+
 #### `POST /api/cases/inject`
 Allows external systems or judges to inject an ad-hoc custom failure event live.
+**Headers**:
+- `X-API-Key`: `demo-recovery-key-2026`
+- `Idempotency-Key` *(optional)*: `IDEM-123456` (persisted in SQLite)
+
 **Request Body**:
 ```json
 {
@@ -86,7 +97,8 @@ Allows external systems or judges to inject an ad-hoc custom failure event live.
   "retry_count": 0,
   "is_disputed": true,
   "days_overdue": 7,
-  "replied_stop": false
+  "replied_stop": false,
+  "await_response": false
 }
 ```
 **Response**:
@@ -94,16 +106,30 @@ Allows external systems or judges to inject an ad-hoc custom failure event live.
 {
   "message": "Case ingested and processed across all 6 agents",
   "case_id": "CASE-9FA812",
-  "case": { ... }
+  "case": { ... },
+  "idempotent": false
 }
 ```
 
+---
+
 #### `POST /api/cases/{case_id}/respond`
 Asynchronously reconciles a customer payment callback or webhook response for a case in `AWAITING_RESPONSE`.
+**Hardened Guards**:
+1. **Idempotency**: Requires `event_id` to deduplicate callbacks against `idempotency_keys` table.
+2. **State Guard**: Rejects with `HTTP 409 Conflict` if case status is not `AWAITING_RESPONSE`.
+3. **Amount Reconciliation**: Validates amount/currency against case expected values; mismatches route to `ESCALATED` for manual finance review.
+
+**Headers**:
+- `X-API-Key`: `demo-recovery-key-2026`
+
 **Request Body**:
 ```json
 {
+  "event_id": "EVT-PAY-RAZORPAY-8812",
   "outcome": "PAID",
+  "amount": 1499.00,
+  "currency": "INR",
   "notes": "Razorpay webhook callback: captured",
   "payment_reference": "pay_98a7sd89f7"
 }
@@ -115,7 +141,8 @@ Asynchronously reconciles a customer payment callback or webhook response for a 
   "case_id": "CASE-1042",
   "state": "RECOVERED",
   "recovered_amount": 1499.00,
-  "case": { ... }
+  "case": { ... },
+  "idempotent": false
 }
 ```
 
