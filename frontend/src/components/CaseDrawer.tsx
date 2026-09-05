@@ -405,7 +405,7 @@ export const CaseDrawer: React.FC<CaseDrawerProps> = ({ caseData, onClose }) => 
                     <span>Hinglish Voice Recovery Agent</span>
                   </div>
                   <span className="text-[10px] font-mono text-[#5A5A55] bg-canvas px-2 py-0.5 rounded-full border border-hairline">
-                    Deepgram / ElevenLabs Audio
+                    Neural Voice Engine
                   </span>
                 </div>
 
