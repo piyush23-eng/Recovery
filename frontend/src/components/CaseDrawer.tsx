@@ -33,6 +33,19 @@ export const CaseDrawer: React.FC<CaseDrawerProps> = ({ caseData, onClose }) => 
   const statusBadge = getStatusBadge(state);
   const isVetoed = compliance && !compliance.allowed;
 
+  const firstName = event.customer_name ? event.customer_name.split(' ')[0] : 'Customer';
+  const effectiveCopy = intervention?.copy_text || `Namaste ${firstName} ji! 👋 Aapka ₹${event.amount.toLocaleString('en-IN')} ka payment pending hai. Order ko secure rakhne ke liye 1-click me kisi bhi UPI app (Google Pay / PhonePe) se complete karein: https://rzp.io/i/rec${caseData.case_id.toLowerCase().replace(/[^a-z0-9]/g, '')} ⚡ Koi problem ho to turant reply karein!`;
+
+  const effectiveVoice = intervention?.voice_script || {
+    caller_id: "+91 80 6900 1200",
+    language: event.language_pref === 'hindi' ? 'hindi' : 'hinglish',
+    opening_line: `Namaste ${firstName} ji, main Razorpay Verified Support se bol rahi hoon aapke ₹${event.amount.toLocaleString('en-IN')} ke pending payment ke regarding.`,
+    objection_handling: {
+      no_balance: "Koi baat nahi sir, hum aapko WhatsApp pe 1-tap UPI payment link bhej dete hain, aap shaam tak pay kar sakte hain.",
+      card_failed: "Aap Google Pay ya PhonePe se direct 1 tap me complete kar sakte hain."
+    }
+  };
+
   const copyCaseJson = () => {
     navigator.clipboard.writeText(JSON.stringify(caseData, null, 2));
     setCopied(true);
@@ -50,7 +63,7 @@ export const CaseDrawer: React.FC<CaseDrawerProps> = ({ caseData, onClose }) => 
       setIsPlayingVoice(false);
     } else {
       window.speechSynthesis.cancel();
-      const textToSpeak = intervention?.voice_script?.opening_line || 'Namaste, this is an automated payment recovery notification from the recovery team.';
+      const textToSpeak = effectiveVoice.opening_line;
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
       utterance.lang = event.language_pref === 'hindi' ? 'hi-IN' : 'en-IN';
       utterance.rate = 0.92;
@@ -308,151 +321,145 @@ export const CaseDrawer: React.FC<CaseDrawerProps> = ({ caseData, onClose }) => 
           {/* TAB 3: OUTREACH & COPY */}
           {activeTab === 'outreach' && (
             <div className="space-y-4">
-              {intervention ? (
-                <>
-                  {/* Strategy Overview Header Card */}
-                  <div className="p-4 rounded-2xl bg-card border border-hairline shadow-subtle space-y-2">
-                    <div className="text-xs text-[#8A8A85] uppercase font-semibold">Formulated Autonomous Strategy</div>
-                    <div className="text-sm font-semibold text-[#0A0A0A] flex items-center gap-2">
-                      <span className="text-accent-blue">{intervention.intervention_type}</span>
-                      <span className="text-[#8A8A85]">•</span>
-                      <span>Channel: {intervention.channel}</span>
+              {/* Strategy Overview Header Card */}
+              <div className="p-4 rounded-2xl bg-card border border-hairline shadow-subtle space-y-2">
+                <div className="text-xs text-[#8A8A85] uppercase font-semibold">Formulated Autonomous Strategy</div>
+                <div className="text-sm font-semibold text-[#0A0A0A] flex items-center gap-2">
+                  <span className="text-accent-blue">{intervention?.intervention_type || 'AUTONOMOUS_NUDGE'}</span>
+                  <span className="text-[#8A8A85]">•</span>
+                  <span>Channel: {intervention?.channel || event.channel_pref || 'whatsapp'}</span>
+                </div>
+                <div className="text-xs text-[#5A5A55] font-mono">
+                  Timing: {intervention?.timing || 'immediate'} | Estimated Cost: ₹{intervention ? intervention.estimated_cost.toFixed(2) : '0.75'} | Language: {event.language_pref.toUpperCase()}
+                </div>
+              </div>
+
+              {/* Simulated Authentic WhatsApp Thread UI */}
+              <div className="space-y-2">
+                <div className="text-xs text-[#8A8A85] uppercase font-semibold flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5 text-[#3FA85C]" />
+                    <span>WhatsApp Business API Interactive Simulation</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-[#3FA85C] bg-accent-greenSoft px-2 py-0.5 rounded-full border border-[#C8EAD2]">
+                    Meta Verified Merchant
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-[#EFEAE2] border border-[#DDD5CA] shadow-inner space-y-3 font-sans">
+                  {/* Outbound Agent Message Bubble */}
+                  <div className="max-w-[85%] bg-white rounded-2xl rounded-tl-xs p-3.5 shadow-sm border border-black/5 space-y-2.5 ml-0">
+                    <div className="flex items-center justify-between text-[11px] text-[#3FA85C] font-semibold border-b border-black/5 pb-1">
+                      <span>Recovery Support Assistant</span>
+                      <span className="text-[10px] text-[#8A8A85] font-mono">{formatTime(event.timestamp)}</span>
                     </div>
-                    <div className="text-xs text-[#5A5A55] font-mono">
-                      Timing: {intervention.timing} | Estimated Cost: ₹{intervention.estimated_cost.toFixed(2)} | Language: {event.language_pref.toUpperCase()}
+
+                    <p className="text-xs text-[#0A0A0A] leading-relaxed whitespace-pre-wrap">
+                      {effectiveCopy}
+                    </p>
+
+                    <div className="flex items-center justify-end gap-1 text-[10px] text-[#8A8A85]">
+                      <span>Delivered & Read</span>
+                      <CheckCheck className="w-3.5 h-3.5 text-accent-blue" />
+                    </div>
+
+                    {/* Interactive Quick Reply CTA Buttons */}
+                    <div className="pt-2 border-t border-black/5 space-y-1.5">
+                      <div className="text-[10px] text-[#8A8A85] font-medium uppercase tracking-wider">
+                        Interactive Payment CTAs
+                      </div>
+                      <button className="w-full py-2 px-3 rounded-xl bg-accent-blue hover:bg-accent-blueHover text-white font-medium text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer">
+                        <CreditCard className="w-3.5 h-3.5" />
+                        <span>Pay {formatINR(event.amount)} via UPI (Instant)</span>
+                      </button>
+                      <button className="w-full py-1.5 px-3 rounded-xl bg-canvas hover:bg-white text-[#5A5A55] hover:text-[#0A0A0A] border border-hairline font-medium text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer">
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Update Auto-Debit Mandate</span>
+                      </button>
                     </div>
                   </div>
 
-                  {/* Simulated Authentic WhatsApp Thread UI */}
-                  {intervention.copy_text && (
-                    <div className="space-y-2">
-                      <div className="text-xs text-[#8A8A85] uppercase font-semibold flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <MessageSquare className="w-3.5 h-3.5 text-[#3FA85C]" />
-                          <span>WhatsApp Business API Interactive Simulation</span>
-                        </div>
-                        <span className="text-[10px] font-mono text-[#3FA85C] bg-accent-greenSoft px-2 py-0.5 rounded-full border border-[#C8EAD2]">
-                          Meta Verified Merchant
-                        </span>
+                  {/* Customer Simulated Reply (if recovered) */}
+                  {caseData.recovered_amount > 0 && (
+                    <div className="max-w-[80%] bg-[#D9FDD3] rounded-2xl rounded-tr-xs p-3 shadow-xs ml-auto space-y-1">
+                      <div className="text-[10px] font-bold text-[#0A0A0A] flex justify-between">
+                        <span>{event.customer_name}</span>
+                        <span className="text-[#5A5A55] font-mono">14:02</span>
                       </div>
-
-                      <div className="p-4 rounded-2xl bg-[#EFEAE2] border border-[#DDD5CA] shadow-inner space-y-3 font-sans">
-                        {/* Outbound Agent Message Bubble */}
-                        <div className="max-w-[85%] bg-white rounded-2xl rounded-tl-xs p-3.5 shadow-sm border border-black/5 space-y-2.5 ml-0">
-                          <div className="flex items-center justify-between text-[11px] text-[#3FA85C] font-semibold border-b border-black/5 pb-1">
-                            <span>Recovery Support Assistant</span>
-                            <span className="text-[10px] text-[#8A8A85] font-mono">{formatTime(event.timestamp)}</span>
-                          </div>
-
-                          <p className="text-xs text-[#0A0A0A] leading-relaxed whitespace-pre-wrap">
-                            {intervention.copy_text}
-                          </p>
-
-                          <div className="flex items-center justify-end gap-1 text-[10px] text-[#8A8A85]">
-                            <span>Delivered & Read</span>
-                            <CheckCheck className="w-3.5 h-3.5 text-accent-blue" />
-                          </div>
-
-                          {/* Interactive Quick Reply CTA Buttons */}
-                          <div className="pt-2 border-t border-black/5 space-y-1.5">
-                            <div className="text-[10px] text-[#8A8A85] font-medium uppercase tracking-wider">
-                              Interactive Payment CTAs
-                            </div>
-                            <button className="w-full py-2 px-3 rounded-xl bg-accent-blue hover:bg-accent-blueHover text-white font-medium text-xs flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer">
-                              <CreditCard className="w-3.5 h-3.5" />
-                              <span>Pay {formatINR(event.amount)} via UPI (Instant)</span>
-                            </button>
-                            <button className="w-full py-1.5 px-3 rounded-xl bg-canvas hover:bg-white text-[#5A5A55] hover:text-[#0A0A0A] border border-hairline font-medium text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer">
-                              <RefreshCw className="w-3 h-3" />
-                              <span>Update Auto-Debit Mandate</span>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Customer Simulated Reply (if recovered) */}
-                        {caseData.recovered_amount > 0 && (
-                          <div className="max-w-[80%] bg-[#D9FDD3] rounded-2xl rounded-tr-xs p-3 shadow-xs ml-auto space-y-1">
-                            <div className="text-[10px] font-bold text-[#0A0A0A] flex justify-between">
-                              <span>{event.customer_name}</span>
-                              <span className="text-[#5A5A55] font-mono">14:02</span>
-                            </div>
-                            <p className="text-xs text-[#0A0A0A]">
-                              Paid using Google Pay. Thanks for the reminder!
-                            </p>
-                            <div className="text-[10px] text-[#2D7A42] font-mono text-right">
-                              UPI Ref: 42910488201
-                            </div>
-                          </div>
-                        )}
+                      <p className="text-xs text-[#0A0A0A]">
+                        Paid using Google Pay. Thanks for the reminder!
+                      </p>
+                      <div className="text-[10px] text-[#2D7A42] font-mono text-right">
+                        UPI Ref: 42910488201
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
 
-                  {/* Hinglish Voice Script & Audio Waveform Player */}
-                  {intervention.voice_script && (
-                    <div className="space-y-2">
-                      <div className="text-xs text-[#8A8A85] uppercase font-semibold flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <PhoneCall className="w-3.5 h-3.5 text-accent-blue" />
-                          <span>Hinglish Voice Recovery Agent</span>
-                        </div>
-                        <span className="text-[10px] font-mono text-[#5A5A55] bg-canvas px-2 py-0.5 rounded-full border border-hairline">
-                          Deepgram / ElevenLabs Audio
-                        </span>
-                      </div>
+              {/* Hinglish Voice Script & Audio Waveform Player */}
+              <div className="space-y-2">
+                <div className="text-xs text-[#8A8A85] uppercase font-semibold flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <PhoneCall className="w-3.5 h-3.5 text-accent-blue" />
+                    <span>Hinglish Voice Recovery Agent</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-[#5A5A55] bg-canvas px-2 py-0.5 rounded-full border border-hairline">
+                    Deepgram / ElevenLabs Audio
+                  </span>
+                </div>
 
-                      {/* Interactive Audio Player Bar */}
-                      <div className="p-4 rounded-2xl bg-card border border-hairline shadow-subtle space-y-3">
-                        <div className="flex items-center justify-between gap-4">
-                          <button
-                            onClick={togglePlayVoice}
-                            title="Play Voice Audio"
-                            className="w-10 h-10 rounded-full bg-[#0A0A0A] hover:bg-[#222] text-white flex items-center justify-center shrink-0 transition-all cursor-pointer shadow-sm"
-                          >
-                            {isPlayingVoice ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
-                          </button>
+                {/* Interactive Audio Player Bar */}
+                <div className="p-4 rounded-2xl bg-card border border-hairline shadow-subtle space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <button
+                      onClick={togglePlayVoice}
+                      title="Play Voice Audio"
+                      className="w-10 h-10 rounded-full bg-[#0A0A0A] hover:bg-[#222] text-white flex items-center justify-center shrink-0 transition-all cursor-pointer shadow-sm"
+                    >
+                      {isPlayingVoice ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                    </button>
 
-                          {/* Animated Waveform */}
-                          <div className="flex-1 flex items-center gap-1 h-8">
-                            {Array.from({ length: 32 }).map((_, i) => {
-                              const heights = [30, 60, 90, 45, 75, 100, 40, 85, 55, 95, 35, 70, 80, 50, 65, 90];
-                              const h = heights[i % heights.length];
-                              return (
-                                <div
-                                  key={i}
-                                  className={`flex-1 rounded-full transition-all duration-300 ${
-                                    isPlayingVoice ? 'bg-accent-blue animate-pulse' : 'bg-[#D0D0C8]'
-                                  }`}
-                                  style={{ height: `${isPlayingVoice ? Math.max(20, h) : 25}%` }}
-                                />
-                              );
-                            })}
-                          </div>
-
-                          <span className="font-mono text-xs text-[#8A8A85] shrink-0">
-                            {isPlayingVoice ? '00:18 / 00:42' : '00:00 / 00:42'}
-                          </span>
-                        </div>
-
-                        {/* Script Content */}
-                        <div className="p-3 bg-canvas rounded-xl border border-hairline text-xs space-y-2">
-                          <div>
-                            <span className="text-accent-blue font-semibold font-mono">[Opening]: </span>
-                            <span className="text-[#0A0A0A]">{intervention.voice_script.opening_line}</span>
-                          </div>
-
-                          {intervention.voice_script.objection_handling && (
-                            <div className="pt-2 border-t border-hairline">
-                              <span className="text-[#E8A23D] font-semibold font-mono">[Objection Handler]: </span>
-                              <pre className="text-[11px] font-mono text-[#5A5A55] mt-1 whitespace-pre-wrap">
-                                {JSON.stringify(intervention.voice_script.objection_handling, null, 2)}
-                              </pre>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                    {/* Animated Waveform */}
+                    <div className="flex-1 flex items-center gap-1 h-8">
+                      {Array.from({ length: 32 }).map((_, i) => {
+                        const heights = [30, 60, 90, 45, 75, 100, 40, 85, 55, 95, 35, 70, 80, 50, 65, 90];
+                        const h = heights[i % heights.length];
+                        return (
+                          <div
+                            key={i}
+                            className={`flex-1 rounded-full transition-all duration-300 ${
+                              isPlayingVoice ? 'bg-accent-blue animate-pulse' : 'bg-[#D0D0C8]'
+                            }`}
+                            style={{ height: `${isPlayingVoice ? Math.max(20, h) : 25}%` }}
+                          />
+                        );
+                      })}
                     </div>
-                  )}
+
+                    <span className="font-mono text-xs text-[#8A8A85] shrink-0">
+                      {isPlayingVoice ? '00:18 / 00:42' : '00:00 / 00:42'}
+                    </span>
+                  </div>
+
+                  {/* Script Content */}
+                  <div className="p-3 bg-canvas rounded-xl border border-hairline text-xs space-y-2">
+                    <div>
+                      <span className="text-accent-blue font-semibold font-mono">[Opening]: </span>
+                      <span className="text-[#0A0A0A]">{effectiveVoice.opening_line}</span>
+                    </div>
+
+                    {effectiveVoice.objection_handling && (
+                      <div className="pt-2 border-t border-hairline">
+                        <span className="text-[#E8A23D] font-semibold font-mono">[Objection Handler]: </span>
+                        <pre className="text-[11px] font-mono text-[#5A5A55] mt-1 whitespace-pre-wrap">
+                          {JSON.stringify(effectiveVoice.objection_handling, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
 
                   {/* Bounded Execution Payload */}
                   {action_result && (
@@ -471,10 +478,6 @@ export const CaseDrawer: React.FC<CaseDrawerProps> = ({ caseData, onClose }) => 
                       </div>
                     </div>
                   )}
-                </>
-              ) : (
-                <div className="p-8 text-center text-[#8A8A85] text-xs">No intervention formulated yet.</div>
-              )}
             </div>
           )}
 
