@@ -14,8 +14,11 @@ export const AttestationModal: React.FC<AttestationModalProps> = ({ isOpen, onCl
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-      <div className="bg-card border border-hairline rounded-2card max-w-2xl w-full p-8 shadow-2xl space-y-6 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto scrollbar-thin">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-150 isolate">
+      <div 
+        style={{ backgroundColor: '#FFFFFF' }}
+        className="bg-white border border-[#D0D0C8] rounded-2card max-w-2xl w-full p-8 shadow-[0_20px_60px_rgba(0,0,0,0.3)] space-y-6 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto scrollbar-thin"
+      >
         {/* Header */}
         <div className="flex items-start justify-between pb-4 border-b border-hairline">
           <div className="space-y-1">

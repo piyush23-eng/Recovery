@@ -106,7 +106,10 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({ selectedRange,
 
         {/* Date Range Popover */}
         {isOpen && (
-          <div className="absolute top-full left-0 mt-2 w-72 bg-card border border-hairline rounded-2card p-4 shadow-xl z-50 animate-in fade-in zoom-in-95 duration-150 space-y-3">
+          <div 
+            style={{ backgroundColor: '#FFFFFF' }}
+            className="absolute top-full left-0 mt-2 w-72 bg-white border border-[#D0D0C8] rounded-2card p-4 shadow-[0_12px_40px_rgba(0,0,0,0.2)] z-50 animate-in fade-in zoom-in-95 duration-150 space-y-3 isolate ring-1 ring-black/5"
+          >
             <div className="text-[11px] font-mono uppercase tracking-wider text-[#8A8A85] font-semibold">
               Select Time Window
             </div>
@@ -189,7 +192,10 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({ selectedRange,
 
         {/* Comparison Dropdown */}
         {isCompOpen && (
-          <div className="absolute top-full right-0 mt-2 w-52 bg-card border border-hairline rounded-2card p-2 shadow-xl z-50 animate-in fade-in zoom-in-95 duration-150 space-y-1">
+          <div 
+            style={{ backgroundColor: '#FFFFFF' }}
+            className="absolute top-full right-0 mt-2 w-52 bg-white border border-[#D0D0C8] rounded-2card p-2 shadow-[0_12px_40px_rgba(0,0,0,0.2)] z-50 animate-in fade-in zoom-in-95 duration-150 space-y-1 isolate ring-1 ring-black/5"
+          >
             <div className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider text-[#8A8A85] font-semibold">
               Comparison Period
             </div>
