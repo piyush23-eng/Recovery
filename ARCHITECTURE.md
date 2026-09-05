@@ -126,26 +126,44 @@ Every detected financial risk event undergoes state transitions according to the
 
 ---
 
-## 4. Concurrency & Synchronization Model
+## 4. Concurrency, Storage & Persistence Model
+
+Recovery uses a hybrid persistence architecture combining an in-memory runtime cache for sub-millisecond execution and WebSocket streaming with a WAL-mode SQLite database (`recovery.db`) for crash-resilient ACID persistence.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                   BatchSimulationRunner                  │
 ├──────────────────────────────────────────────────────────┤
 │ - raw_dataset: List[Dict] (300 calibrated cases)        │
-│ - cases: Dict[str, Case] (In-memory registry)            │
-│ - audit_log: List[AuditEntry] (Append-only ledger)       │
+│ - cases: Dict[str, Case] (In-memory runtime cache)       │
+│ - audit_log: List[AuditEntry] (Chained ledger cache)     │
 │ - active_websockets: Set[WebSocket]                      │
 │ - speed_multiplier: float (1.0x to 100.0x)               │
-└────────────────────────────┬─────────────────────────────┘
-                             │
-              ┌──────────────┴──────────────┐
-              ▼                             ▼
-   [ Asyncio Execution Loop ]    [ WebSocket Broadcast Hub ]
-   - Step delay calculation      - TRACE_EMITTED
-   - State transition updates    - CASE_UPDATED
-   - Financial aggregation       - STATS_UPDATED
+└───────────────┬──────────────────────────┬───────────────┘
+                │                          │
+                ▼                          ▼
+ ┌─────────────────────────────┐ ┌─────────────────────────────────────────┐
+ │   SQLite Engine Layer       │ │   WebSocket Broadcast Hub               │
+ │   (`backend/database.py`)   │ │   - TRACE_EMITTED                       │
+ ├─────────────────────────────┤ │   - CASE_UPDATED                        │
+ │ • cases (ACID state)        │ │   - STATS_UPDATED                       │
+ │ • audit_log (Plain INSERT)  │ │   - SIMULATION_STATE                    │
+ │ • idempotency_keys (Locks)  │ └─────────────────────────────────────────┘
+ │ • settled_payments (Unique) │
+ └─────────────────────────────┘
 ```
+
+### 4.1 SQLite Storage Schema (`backend/database.py`)
+- **`cases`**: Stores `case_id` (PRIMARY KEY), `customer_id`, `amount`, `status`, `event_type`, `diagnosis_json`, `strategy_json`, `compliance_json`, `action_log_json`, `recovered_amount`, `created_at`, `updated_at`.
+- **`audit_log`**: Stores `audit_id` (PRIMARY KEY), `case_id`, `agent`, `decision`, `reasoning`, `entry_hash`, `prev_hash`, `timestamp`. **Enforces plain `INSERT` without UPSERT** to guarantee true append-only immutability.
+- **`idempotency_keys`**: Stores `idempotency_key` (PRIMARY KEY), `response_json`, `created_at` to prevent duplicate API mutations.
+- **`settled_payments`**: Stores `payment_reference` (PRIMARY KEY), `case_id`, `event_id`, `amount`, `currency`, `settled_at` to guarantee unique payment reconciliation and reject replay attacks.
+
+### 4.2 Atomic Transaction Semantics (`save_case_and_audit`)
+Every agent execution step executes through `save_case_and_audit(case, audit_entry)` in a single atomic SQLite transaction (`BEGIN IMMEDIATE`). If either the case update or audit append fails (e.g., hash collision or constraint violation), the entire transaction rolls back cleanly, maintaining 100% synchronization between case state and the audit ledger.
+
+### 4.3 Authentication & Session Security
+All mutating endpoints (`/api/cases/inject`, `/api/cases/{case_id}/respond`, `/api/simulation/*`) and sensitive read endpoints (`/api/audit-log/verify`, `/api/audit-log/export`, `/api/cases/{case_id}`) require an `X-API-Key` header verified against `RECOVERY_API_KEY`. In demo environments (`DEMO_MODE=true`), a dynamic cryptographically secure session token is auto-generated on startup and synchronized with the frontend via `/api/auth/token`.
 
 - **Asyncio Task Management**: Simulation runs within an independent `asyncio.Task` loop, allowing clients to pause, step, or speed up processing without blocking the FastAPI HTTP event loop.
 - **Dead Connection Handling**: WebSockets that disconnect unexpectedly are automatically removed from `active_websockets` to prevent memory leakage or send errors.

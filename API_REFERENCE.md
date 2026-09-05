@@ -69,10 +69,21 @@ Returns paginated case records with optional multi-attribute filtering.
 #### `GET /api/cases/{case_id}`
 Returns complete detail, history progression, compliance checks, and audit entries for a specific case.
 
-### Authentication
-All mutating endpoints (`POST /api/cases/inject`, `POST /api/cases/{case_id}/respond`, `POST /api/simulation/*`) require the `X-API-Key` header:
-- Header: `X-API-Key: demo-recovery-key-2026` (configurable via `RECOVERY_API_KEY` env var)
+### Authentication & Access Control
+All mutating endpoints (`POST /api/cases/inject`, `POST /api/cases/{case_id}/respond`, `POST /api/simulation/*`) as well as sensitive audit and case detail endpoints (`GET /api/cases/{case_id}`, `GET /api/audit-log/verify`, `GET /api/audit-log/export`) require the `X-API-Key` header:
+- Header: `X-API-Key: <RECOVERY_API_KEY>`
+- In production, set via the `RECOVERY_API_KEY` environment variable.
+- In demo mode (`DEMO_MODE=true`, default), a cryptographically secure random session key is generated on server startup.
 - Missing or invalid keys return `HTTP 401 Unauthorized`.
+
+#### `GET /api/auth/token`
+Returns the active API key and demo status for authorized frontend dashboard bootstrapping.
+```json
+{
+  "api_key": "demo-recovery-session-a8f9...",
+  "demo_mode": true
+}
+```
 
 ---
 
@@ -116,12 +127,13 @@ Allows external systems or judges to inject an ad-hoc custom failure event live.
 #### `POST /api/cases/{case_id}/respond`
 Asynchronously reconciles a customer payment callback or webhook response for a case in `AWAITING_RESPONSE`.
 **Hardened Guards**:
-1. **Idempotency**: Requires `event_id` to deduplicate callbacks against `idempotency_keys` table.
+1. **Idempotency**: Deduplicates webhook requests by `event_id` in the `idempotency_keys` table.
 2. **State Guard**: Rejects with `HTTP 409 Conflict` if case status is not `AWAITING_RESPONSE`.
-3. **Amount Reconciliation**: Validates amount/currency against case expected values; mismatches route to `ESCALATED` for manual finance review.
+3. **Payment Reference Uniqueness**: Requires a unique, non-empty `payment_reference` recorded in the `settled_payments` table to prevent duplicate transaction replay.
+4. **Amount & Currency Reconciliation**: Validates amount/currency against expected case values; mismatches route to `ESCALATED` for manual finance review.
 
 **Headers**:
-- `X-API-Key`: `demo-recovery-key-2026`
+- `X-API-Key`: `<RECOVERY_API_KEY>`
 
 **Request Body**:
 ```json

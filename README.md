@@ -279,16 +279,18 @@ ai-revenue-recovery/
 │   │   ├── compliance_guardrail.py    # Evaluates 7 deterministic hard gates
 │   │   ├── execution_agent.py         # Dispatches bounded actions & tracks cost
 │   │   └── outcome_audit_agent.py     # Updates ledger & writes audit entries
+│   ├── database.py                    # SQLite persistence & atomic write transactions
 │   ├── engine/
 │   │   ├── batch_runner.py            # WebSocket simulation & case injection engine
 │   │   ├── dataset_generator.py       # 300-case calibrated dataset generator
 │   │   └── state_graph.py             # LangGraph state machine workflow
 │   ├── main.py                        # FastAPI endpoints, WebSockets, CSV export
 │   ├── models.py                      # Pydantic schemas (RiskEvent, Case, AuditEntry, hash chain)
+│   ├── test_audit_hash_chain.py       # Cryptographic SHA-256 hash-chain verification test
 │   ├── test_compliance_hard_gates.py  # Strict 7-gate compliance test suite
 │   ├── test_pipeline.py               # End-to-end LangGraph StateGraph pipeline test
-│   ├── test_audit_hash_chain.py       # Cryptographic SHA-256 hash-chain verification test
 │   ├── test_reproducibility.py        # 100% deterministic reproducibility test suite
+│   ├── test_webhook_and_db.py         # SQLite persistence, auth, & webhook tests
 │   └── requirements.txt               # Backend dependencies (fastapi, langgraph, pytest, etc.)
 ├── frontend/
 │   ├── src/
