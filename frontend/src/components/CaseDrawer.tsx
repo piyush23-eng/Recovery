@@ -63,10 +63,21 @@ export const CaseDrawer: React.FC<CaseDrawerProps> = ({ caseData, onClose }) => 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl bg-canvas border-l border-hairline h-full flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-right duration-300">
-        {/* Drawer Header */}
-        <div className="p-6 border-b border-hairline bg-card flex items-start justify-between gap-4 select-none">
+    <div className="fixed inset-0 z-50 overflow-hidden isolate">
+      {/* Dark overlay backdrop */}
+      <div 
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-200"
+        onClick={onClose}
+      />
+
+      {/* Solid Opaque Drawer */}
+      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10 pointer-events-none">
+        <div 
+          style={{ backgroundColor: '#FFFFFF' }}
+          className="w-screen max-w-2xl bg-white border-l border-[#D0D0C8] h-full flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.35)] overflow-hidden animate-in slide-in-from-right duration-300 relative z-10 pointer-events-auto"
+        >
+          {/* Drawer Header */}
+          <div className="p-6 border-b border-hairline bg-white flex items-start justify-between gap-4 select-none">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
               <span className="text-base font-mono font-bold text-[#0A0A0A]">{caseData.case_id}</span>
@@ -104,7 +115,7 @@ export const CaseDrawer: React.FC<CaseDrawerProps> = ({ caseData, onClose }) => 
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex items-center border-b border-hairline bg-card px-6 font-medium text-xs select-none">
+        <div className="flex items-center border-b border-hairline bg-white px-6 font-medium text-xs select-none">
           <button
             onClick={() => setActiveTab('timeline')}
             className={`py-3 px-3 border-b-2 transition-all cursor-pointer ${
@@ -163,7 +174,10 @@ export const CaseDrawer: React.FC<CaseDrawerProps> = ({ caseData, onClose }) => 
         </div>
 
         {/* Drawer Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin">
+        <div 
+          style={{ backgroundColor: '#FAF9F7' }} 
+          className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin bg-[#FAF9F7]"
+        >
           {/* TAB 1: TIMELINE */}
           {activeTab === 'timeline' && (
             <div className="space-y-4">
@@ -489,5 +503,6 @@ export const CaseDrawer: React.FC<CaseDrawerProps> = ({ caseData, onClose }) => 
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 };
